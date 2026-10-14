@@ -1,0 +1,24 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv*/
+build/
+build-*/
+dist/
+release/
+release-v0.2/
+release-v0.3/
+final-release/
+debug-release/
+debug2/
+*.spec
+*.log
+*.exe
+qa_render/
+qa_render2/
+qa_update/
+~$*.docx
+# SR local authentication state
+.playwright/.auth/
+output/
+docs/codex/upgrade_backups/

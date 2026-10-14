@@ -1,0 +1,175 @@
+version: "0.4"
+project: "SDRbridge"
+project_key: "SDB"
+updated_at: "2026-10-14"
+autonomy_policy:
+  max_lots_per_session: 4
+  max_repair_attempts_per_lot: 2
+  stop_on_gate_failure: true
+autonomy_run:
+  enabled: false
+  approved_by_user_at: null
+  note: "Le prompt de lancement autorise les passes futures ; présence de ce registre seule insuffisante."
+lots:
+  - lot_id: SDB-BASE-001
+    title: "Préparation de référence"
+    status: done
+    objective: "Import, audit, environnement isolé et SR4.1 prêts"
+    depends_on: []
+    validated_request_ids: ["PREP-2026-10-13"]
+    design_evidence:
+      status: pass
+      code_read_required: false
+      candidate_files: ["docs/reference/PREPARATION_REPORT.md"]
+      confirmed_files_read: ["docs/reference/PREPARATION_REPORT.md"]
+    required_sources: ["docs/work/BACKLOG.md", "docs/specs/06_IMPLEMENTATION_BASELINE.md", "docs/verification/ACCEPTANCE.md"]
+    acceptance_criteria: ["Provenance épinglée et 4 tests amont réussis","Pack SR personnalisé et contrats contrôlés"]
+    verification_commands:
+      - ".venv/Scripts/python.exe -m unittest discover -s tests -v"
+      - ".venv/Scripts/python.exe scripts/codex/sr_post_install_check.py --root . --json"
+    verification_note: "Ajouter les tests spécifiques du lot ; 4 tests historiques seuls insuffisants."
+    stop_conditions: ["test critique non résolu après deux réparations", "modification destructive ou hors périmètre", "activation externe non autorisée"]
+  - lot_id: SDB-CORE-001
+    title: "Sessions et configuration"
+    status: done
+    objective: "Sérialiser lifecycle et configurations, identités, époques, temps et métriques"
+    depends_on: ["SDB-BASE-001"]
+    validated_request_ids: ["REQ-003","REQ-007","REQ-013","REQ-014","REQ-015","REQ-033"]
+    design_evidence:
+      status: pending
+      code_read_required: true
+      candidate_files: ["src/sdr_bridge/bridge.py","src/sdr_bridge/model.py","src/sdr_bridge/source.py"]
+      confirmed_files_read: []
+    required_sources: ["docs/work/BACKLOG.md", "docs/specs/06_IMPLEMENTATION_BASELINE.md", "docs/verification/ACCEPTANCE.md"]
+    acceptance_criteria: ["AC-02 et AC-05 en simulation","Aucune configuration ambiguë publiée ; erreurs des threads propagées"]
+    verification_commands:
+      - ".venv/Scripts/python.exe -m unittest discover -s tests -v"
+      - ".venv/Scripts/python.exe scripts/codex/sr_post_install_check.py --root . --json"
+    verification_note: "Ajouter les tests spécifiques du lot ; 4 tests historiques seuls insuffisants."
+    stop_conditions: ["test critique non résolu après deux réparations", "modification destructive ou hors périmètre", "activation externe non autorisée"]
+  - lot_id: SDB-RING-001
+    title: "Distribution locale cohérente"
+    status: done
+    objective: "Ring v2 aligné, helper natif, lecteurs Python/ExtIO et absence de plafond arbitraire"
+    depends_on: ["SDB-CORE-001"]
+    validated_request_ids: ["REQ-008","REQ-009","REQ-034"]
+    design_evidence:
+      status: pending
+      code_read_required: true
+      candidate_files: ["src/sdr_bridge/ring.py","src/sdr_bridge/client.py","native/extio_bridge/extio_bridge.cpp"]
+      confirmed_files_read: []
+    required_sources: ["docs/work/BACKLOG.md", "docs/specs/06_IMPLEMENTATION_BASELINE.md", "docs/verification/ACCEPTANCE.md"]
+    acceptance_criteria: ["AC-06 multiprocessus avec wrap, cinq lecteurs et lecteur suspendu","Build x64 et Win32 ; aucun bloc déchiré accepté ; ABI v1 jamais réinterprétée"]
+    verification_commands:
+      - ".venv/Scripts/python.exe -m unittest discover -s tests -v"
+      - ".venv/Scripts/python.exe scripts/codex/sr_post_install_check.py --root . --json"
+    verification_note: "Ajouter les tests spécifiques du lot ; 4 tests historiques seuls insuffisants."
+    stop_conditions: ["test critique non résolu après deux réparations", "modification destructive ou hors périmètre", "activation externe non autorisée"]
+  - lot_id: SDB-DSP-001
+    title: "Profils et FIR partagé"
+    status: done
+    objective: "Conversions et resampling polyphase avec état et mutualisation"
+    depends_on: ["SDB-CORE-001","SDB-RING-001"]
+    validated_request_ids: ["REQ-010","REQ-011","REQ-012","REQ-013","REQ-014"]
+    design_evidence:
+      status: pending
+      code_read_required: true
+      candidate_files: ["src/sdr_bridge/model.py"]
+      confirmed_files_read: []
+    required_sources: ["docs/work/BACKLOG.md", "docs/specs/06_IMPLEMENTATION_BASELINE.md", "docs/verification/ACCEPTANCE.md"]
+    acceptance_criteria: ["AC-07 et AC-08 avec oracle indépendant et partitions variables","192k/96k mesurés ; interpolation linéaire ANTRACK remplacée ; FIFO bornée"]
+    verification_commands:
+      - ".venv/Scripts/python.exe -m unittest discover -s tests -v"
+      - ".venv/Scripts/python.exe scripts/codex/sr_post_install_check.py --root . --json"
+    verification_note: "Ajouter les tests spécifiques du lot ; 4 tests historiques seuls insuffisants."
+    stop_conditions: ["test critique non résolu après deux réparations", "modification destructive ou hors périmètre", "activation externe non autorisée"]
+  - lot_id: SDB-RF-001
+    title: "Sources et règles RF"
+    status: done
+    objective: "Soapy générique, backend natif conservé, capacités et readback, profils RF"
+    depends_on: ["SDB-CORE-001"]
+    validated_request_ids: ["REQ-001","REQ-002","REQ-003","REQ-004","REQ-005","REQ-006","REQ-007","REQ-032"]
+    design_evidence:
+      status: pending
+      code_read_required: true
+      candidate_files: ["src/sdr_bridge/soapy_source.py","src/sdr_bridge/native_sdrplay.py"]
+      confirmed_files_read: []
+    required_sources: ["docs/work/BACKLOG.md", "docs/specs/06_IMPLEMENTATION_BASELINE.md", "docs/verification/ACCEPTANCE.md"]
+    acceptance_criteria: ["AC-01/03/04 sur faux backend ; ouverture matérielle non exécutée","Gains nommés et antennes réels non inventés ; watchdog reçoit erreurs"]
+    verification_commands:
+      - ".venv/Scripts/python.exe -m unittest discover -s tests -v"
+      - ".venv/Scripts/python.exe scripts/codex/sr_post_install_check.py --root . --json"
+    verification_note: "Ajouter les tests spécifiques du lot ; 4 tests historiques seuls insuffisants."
+    stop_conditions: ["test critique non résolu après deux réparations", "modification destructive ou hors périmètre", "activation externe non autorisée"]
+  - lot_id: SDB-NET-001
+    title: "Contrôle et transports"
+    status: done
+    objective: "Protocole v2, baux, unicast/multicast, raw SDR++, client natif de référence"
+    depends_on: ["SDB-CORE-001","SDB-DSP-001"]
+    validated_request_ids: ["REQ-016","REQ-017","REQ-018","REQ-019","REQ-020","REQ-021","REQ-022","REQ-023"]
+    design_evidence:
+      status: pending
+      code_read_required: true
+      candidate_files: ["src/sdr_bridge/control.py","src/sdr_bridge/udp.py"]
+      confirmed_files_read: []
+    required_sources: ["docs/work/BACKLOG.md", "docs/specs/06_IMPLEMENTATION_BASELINE.md", "docs/verification/ACCEPTANCE.md"]
+    acceptance_criteria: ["AC-09 et AC-10 en loopback ; parsing malformé et limites testés","Vecteurs indépendants header72 ; pas de contrôle RF distant ; compteurs corrects"]
+    verification_commands:
+      - ".venv/Scripts/python.exe -m unittest discover -s tests -v"
+      - ".venv/Scripts/python.exe scripts/codex/sr_post_install_check.py --root . --json"
+    verification_note: "Ajouter les tests spécifiques du lot ; 4 tests historiques seuls insuffisants."
+    stop_conditions: ["test critique non résolu après deux réparations", "modification destructive ou hors périmètre", "activation externe non autorisée"]
+  - lot_id: SDB-UI-001
+    title: "Qt normal et compact"
+    status: done
+    objective: "GUI Qt et FFT partagé sur contrôleur existant, parcours opérateur complets"
+    depends_on: ["SDB-CORE-001","SDB-RF-001","SDB-DSP-001","SDB-NET-001"]
+    validated_request_ids: ["REQ-019","REQ-024","REQ-025","REQ-026","REQ-027","REQ-028","REQ-029"]
+    design_evidence:
+      status: pending
+      code_read_required: true
+      candidate_files: ["src/sdr_bridge/gui.py","src/sdr_bridge/app.py"]
+      confirmed_files_read: []
+    required_sources: ["docs/work/BACKLOG.md", "docs/specs/06_IMPLEMENTATION_BASELINE.md", "docs/verification/ACCEPTANCE.md"]
+    acceptance_criteria: ["AC-11 et AC-12 applicables ; tests QtTest et captures Windows","Bascule compact sans arrêt ; aucun faux succès ; sans Qt en headless"]
+    verification_commands:
+      - ".venv/Scripts/python.exe -m unittest discover -s tests -v"
+      - ".venv/Scripts/python.exe scripts/codex/sr_post_install_check.py --root . --json"
+    verification_note: "Ajouter les tests spécifiques du lot ; 4 tests historiques seuls insuffisants."
+    stop_conditions: ["test critique non résolu après deux réparations", "modification destructive ou hors périmètre", "activation externe non autorisée"]
+  - lot_id: SDB-OPS-001
+    title: "Exploitation et SigMF"
+    status: done
+    objective: "Persistance, headless, watchdog, recorder et replay SigMF1.2.6"
+    depends_on: ["SDB-CORE-001","SDB-DSP-001","SDB-RF-001","SDB-UI-001"]
+    validated_request_ids: ["REQ-028","REQ-029","REQ-030","REQ-031","REQ-032","REQ-033","REQ-034"]
+    design_evidence:
+      status: pending
+      code_read_required: true
+      candidate_files: ["src/sdr_bridge/app.py","src/sdr_bridge/bridge.py"]
+      confirmed_files_read: []
+    required_sources: ["docs/work/BACKLOG.md", "docs/specs/06_IMPLEMENTATION_BASELINE.md", "docs/verification/ACCEPTANCE.md"]
+    acceptance_criteria: ["AC-12/13/15 sur sources simulées ; fichiers invalides et disque plein","Schémas/exemples ; capture sans concaténation de trous ; arrêt borné"]
+    verification_commands:
+      - ".venv/Scripts/python.exe -m unittest discover -s tests -v"
+      - ".venv/Scripts/python.exe scripts/codex/sr_post_install_check.py --root . --json"
+    verification_note: "Ajouter les tests spécifiques du lot ; 4 tests historiques seuls insuffisants."
+    stop_conditions: ["test critique non résolu après deux réparations", "modification destructive ou hors périmètre", "activation externe non autorisée"]
+  - lot_id: SDB-QUAL-001
+    title: "Intégration et recette"
+    status: blocked
+    objective: "Recette intégrée, endurance, packaging isolé, matrice clients et preuves restantes"
+    depends_on: ["SDB-RING-001","SDB-DSP-001","SDB-RF-001","SDB-NET-001","SDB-UI-001","SDB-OPS-001"]
+    validated_request_ids: ["REQ-001","REQ-002","REQ-003","REQ-004","REQ-005","REQ-006","REQ-007","REQ-008","REQ-009","REQ-010","REQ-011","REQ-012","REQ-013","REQ-014","REQ-015","REQ-016","REQ-017","REQ-018","REQ-019","REQ-020","REQ-021","REQ-022","REQ-023","REQ-024","REQ-025","REQ-026","REQ-027","REQ-028","REQ-029","REQ-030","REQ-031","REQ-032","REQ-033","REQ-034"]
+    design_evidence:
+      status: pending
+      code_read_required: true
+      candidate_files: ["docs/verification/ACCEPTANCE.md","native/build_native.ps1","pyproject.toml"]
+      confirmed_files_read: []
+    required_sources: ["docs/work/BACKLOG.md", "docs/specs/06_IMPLEMENTATION_BASELINE.md", "docs/verification/ACCEPTANCE.md"]
+    acceptance_criteria: ["AC-14/16/17 et couverture REQ ; séparer simulé et matériel","Pas de release complète sans preuves ; QMAP différé ; installations existantes intactes"]
+    verification_commands:
+      - ".venv/Scripts/python.exe -m unittest discover -s tests -v"
+      - ".venv/Scripts/python.exe scripts/codex/sr_post_install_check.py --root . --json"
+    verification_note: "Ajouter les tests spécifiques du lot ; 4 tests historiques seuls insuffisants."
+    stop_conditions: ["test critique non résolu après deux réparations", "modification destructive ou hors périmètre", "activation externe non autorisée"]

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdrbridge.local/schema/window-v1.json",
+  "type": "object",
+  "required": ["schema_version", "mode", "x", "y", "width", "height", "always_on_top"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "mode": {"enum": ["normal", "compact"]},
+    "x": {"type": "integer"}, "y": {"type": "integer"},
+    "width": {"type": "integer", "minimum": 100}, "height": {"type": "integer", "minimum": 80},
+    "always_on_top": {"type": "boolean"}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdrbridge.local/schema/app-v1.json",
+  "type": "object",
+  "required": ["schema_version", "source", "radio", "network", "buffers", "auto_connect", "auto_start"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "source": {"enum": ["simulated", "soapy", "native", "replay"]},
+    "device_id": {"type": ["string", "null"]},
+    "replay_path": {"type": ["string", "null"]},
+    "radio": {
+      "type": "object",
+      "required": ["center_frequency_hz", "sample_rate_sps", "bandwidth_hz", "gain_reduction_db", "agc_enabled"],
+      "properties": {
+        "center_frequency_hz": {"type": "integer", "minimum": 1000, "maximum": 2000000000},
+        "sample_rate_sps": {"type": "integer", "minimum": 1, "maximum": 20000000},
+        "bandwidth_hz": {"type": "integer", "minimum": 1, "maximum": 20000000},
+        "gain_reduction_db": {"type": "integer", "minimum": 0, "maximum": 100},
+        "agc_enabled": {"type": "boolean"},
+        "antenna": {"type": ["string", "null"]},
+        "gains": {"type": "object", "additionalProperties": {"type": "number"}}
+      },
+      "additionalProperties": false
+    },
+    "network": {
+      "type": "object",
+      "required": ["enabled", "host", "control_port", "legacy_control_port", "token_file", "mdns"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "host": {"type": "string"},
+        "control_port": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "legacy_control_port": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "token_file": {"type": ["string", "null"]},
+        "mdns": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "buffers": {
+      "type": "object",
+      "required": ["ring_slots", "block_samples", "max_clients"],
+      "properties": {
+        "ring_slots": {"type": "integer", "minimum": 4, "maximum": 4096},
+        "block_samples": {"type": "integer", "minimum": 1, "maximum": 1048576},
+        "source_queue_blocks": {"type": "integer", "minimum": 4, "maximum": 4096},
+        "max_clients": {"type": ["integer", "null"], "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "auto_connect": {"type": "boolean"},
+    "auto_start": {"type": "boolean"},
+    "udp_destination": {"type": ["string", "null"], "pattern": "^[^:]+:[0-9]+$"},
+    "udp_transport": {"enum": ["sdbu_v2", "sdrpp_raw_cs16"]},
+    "log_level": {"enum": ["DEBUG", "INFO", "WARNING", "ERROR"]}
+  },
+  "additionalProperties": false
+}

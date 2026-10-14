@@ -1,0 +1,26 @@
+schema_version: 1
+task: "Implémentation SDRbridge V1 simulée"
+updated_at: "2026-10-14"
+objective: "Exécuter SDB-PASS-002, SDB-PASS-003 puis SDB-PASS-004 jusqu'à une application intégrée testée en simulation et prête pour recette matérielle."
+authority:
+  allowed: ["sources", "tests", "documents", "builds locaux", "dépendances .venv", "loopback", "fixtures simulées"]
+  forbidden: ["commit", "push", "publication", "pilotes", "pare-feu", "activation RSPdx", "installations ANTRACK/HDSDR", "Nexus"]
+assumptions:
+  - "Python 3.12 x64 et choix S6 sont retenus."
+  - "Une seule source RX active ; matériel non activé."
+active_pass: "SDB-PASS-004"
+pass_order: ["SDB-PASS-002", "SDB-PASS-003", "SDB-PASS-004"]
+open_requirements: ["AC-14", "REQ-001..REQ-034 matériel"]
+decisions:
+  - "Migration additive SDBR v2 ; lecteur v1 conservé ; émission v1 désactivée par défaut."
+  - "FIR polyphase avec état ; réseau natif wire v2 distinct du raw SDR++."
+  - "File source configurable 256 blocs ; high-water conservé et pertes jamais remises à zéro."
+evidence:
+  baseline: "docs/reference/PREPARATION_REPORT.md"
+  acceptance: "docs/verification/ACCEPTANCE.md"
+  changed_files: ["src/sdr_bridge", "native", "clients/antrack", "tests", "scripts/run_simulation_qualification.py", "packaging", "docs/verification/QUALIFICATION_REPORT.md"]
+verification:
+  status: "blocked_on_simulated_endurance_gate"
+  commands: [".venv/Scripts/python.exe -m unittest discover -s tests -v", ".venv/Scripts/python.exe scripts/run_simulation_qualification.py --duration 600 --warmup 300 --capture-seconds 10 --label functional-10m-queue256", ".\\packaging\\build_exe.ps1"]
+remaining_external_proof: ["RSPdx réel", "ANTRACK réel", "HDSDR 2.81a", "SDR++ 1.2.1", "LAN/VPN"]
+next_action: "Profiler la suspension Windows source/dispatcher sans augmenter la file ; relancer 10 min puis 60 min seulement après zéro drop."

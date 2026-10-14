@@ -1,0 +1,141 @@
+{
+  "schema_version": "1.1",
+  "task_id": "template",
+  "task_type": "documentation",
+  "status_decision": "not_applicable",
+  "requirement_registry": {
+    "sr_contract_path": null,
+    "open_requirement_ids": [],
+    "reopened_lot_ids": [],
+    "user_feedback": [],
+    "next_coherent_scope": "Template non execute. Pour une reprise active, traiter toutes les exigences ouvertes du sr_contract lie."
+  },
+  "evidence_gate": {
+    "done": true,
+    "sources_read": [
+      "AGENTS.md"
+    ]
+  },
+  "fact_gate": {
+    "status": "not_applicable",
+    "classification": "opinion/methode",
+    "facts_verified": [],
+    "sources_checked": [],
+    "unverified_hypotheses": []
+  },
+  "lot_design_evidence_gate": {
+    "status": "not_applicable",
+    "required_for_executable_lot": false,
+    "code_read_required": false,
+    "candidate_files": [],
+    "confirmed_files_read": [],
+    "symbols_or_routes_checked": [],
+    "tests_or_logs_checked": [],
+    "assumptions_remaining": [],
+    "open_questions": [],
+    "not_applicable_reason": "Template non execute.",
+    "status_ceiling_if_not_pass": "proposed"
+  },
+  "backlog_mutation_gate": {
+    "status": "not_applicable",
+    "structural_change_detected": false,
+    "mutation_required": false,
+    "sr_inbox_updated": false,
+    "sr_lots_updated": false,
+    "affected_lots": [],
+    "created_lots": [],
+    "reopened_lots": [],
+    "blocked_lots": [],
+    "superseded_lots": [],
+    "not_updated_reason": "Template non execute.",
+    "decision": "no_backlog_mutation_required"
+  },
+  "global_impact_gate": {
+    "required": false,
+    "status": "not_applicable",
+    "surfaces_reviewed": [],
+    "impacted_lots": [],
+    "new_lots_to_create": [],
+    "lots_to_reopen_or_block": [],
+    "assumptions": [],
+    "open_questions": [],
+    "sequencing_recommendation": "not_required"
+  },
+  "lot_completion_gate": {
+    "status": "not_applicable",
+    "validated_scope_source": "Template non execute.",
+    "scope_reduction_requested": false,
+    "scope_reduction_validated_by_user": false,
+    "coverage_table": [],
+    "ui_ux_required": false,
+    "visual_evidence": [],
+    "decision": "not_applicable"
+  },
+  "ui_validation_gate": {
+    "required": false,
+    "test_readiness_status": "not_applicable",
+    "visual_evidence_status": "not_applicable",
+    "routes": [],
+    "viewports": [],
+    "report_file": null,
+    "screenshots": [],
+    "decision": "not_applicable"
+  },
+  "propagation_gate": {
+    "required": false,
+    "status": "not_applicable",
+    "trigger": "not_applicable",
+    "risk_level": "not_applicable",
+    "preflight_done": false,
+    "human_validation_required": false,
+    "human_validation_received": false,
+    "changed_symbols": [],
+    "affected_surfaces": [],
+    "consumers_identified": [],
+    "reference_searches": [],
+    "remaining_references": [],
+    "ignored_references": [],
+    "compatibility_strategy": "not_required",
+    "verification": [],
+    "decision": "not_applicable"
+  },
+  "implementation": {
+    "app_code_changed": false,
+    "changed_files": []
+  },
+  "verification": {
+    "commands_run": [
+      "not_applicable_template"
+    ],
+    "commands_failed": [],
+    "not_run_reason": null
+  },
+  "e2e_user_tests": {
+    "required": false,
+    "items": []
+  },
+  "memory_updates": {
+    "sr_lots_updated": true,
+    "current_state_updated": false,
+    "task_memory_updated": true,
+    "gate_report_updated": true
+  },
+  "context_budget": {
+    "checked": true,
+    "status": "green",
+    "next_session_prompt": "not_required"
+  },
+  "conversation_transition": {
+    "decision": "continue_current",
+    "reason": "Template context is green and no real task has been executed.",
+    "next_session_prompt_path": null,
+    "user_message_required": false
+  },
+  "resume_protocol": {
+    "required": false,
+    "mode": "not_required",
+    "next_user_prompt": null,
+    "default_on_plain_resume": "strict_resume",
+    "must_not_code_before_user_validation": false
+  }
+}

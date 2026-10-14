@@ -1,0 +1,4 @@
+interface:
+  display_name: "SDRbridge Engineering"
+  short_description: "Contrats RX, IQ, DSP et clients SDRbridge"
+  default_prompt: "Utilise $sdrbridge-engineering pour appliquer les contrats et vérifier le lot SDRbridge actif."

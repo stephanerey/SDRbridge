@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "source": "simulated",
+  "device_id": null,
+  "replay_path": null,
+  "radio": {
+    "center_frequency_hz": 144300000,
+    "sample_rate_sps": 2000000,
+    "bandwidth_hz": 1536000,
+    "gain_reduction_db": 40,
+    "agc_enabled": false,
+    "antenna": null,
+    "gains": {}
+  },
+  "network": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "control_port": 47632,
+    "legacy_control_port": 47631,
+    "token_file": null,
+    "mdns": false
+  },
+  "buffers": {
+    "ring_slots": 64,
+    "block_samples": 4096,
+    "source_queue_blocks": 256,
+    "max_clients": null
+  },
+  "auto_connect": false,
+  "auto_start": false,
+  "udp_destination": null,
+  "udp_transport": "sdbu_v2",
+  "log_level": "INFO"
+}

@@ -1,0 +1,38 @@
+schema_version: 1
+mode: core # core | nexus_kg
+
+# In core mode no MCP server or schema is loaded and no MCP call is allowed.
+servers:
+  nexus:
+    enabled: false
+    trust: internal # internal | external | untrusted
+    protocol_version: null
+    defer_loading: true
+    deterministic_tool_order: true
+    capabilities:
+      query_graph:
+        tool: null
+        access: read
+      fetch_context:
+        tool: null
+        access: read
+      check_freshness:
+        tool: null
+        access: read
+      update_graph:
+        tool: null
+        access: write
+    approvals:
+      internal_read: never
+      sensitive_read: always
+      write: always
+      destructive: always
+    limits:
+      max_loaded_tools_per_task: 5
+      max_result_characters: 8000
+      max_retries: 1
+      require_pagination: true
+    fallback:
+      on_unavailable: core
+      repeat_failed_query: false
+      record_single_failure: true

@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+project(sdr_ring_atomic LANGUAGES C)
+add_library(sdr_ring_atomic SHARED ring_atomic.c)
+target_compile_definitions(sdr_ring_atomic PRIVATE SDB_RING_ATOMIC_EXPORTS)
+set_target_properties(sdr_ring_atomic PROPERTIES OUTPUT_NAME "sdr_ring_atomic")

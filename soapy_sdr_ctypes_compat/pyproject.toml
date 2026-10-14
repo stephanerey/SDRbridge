@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soapy-sdr-ctypes-compat"
+version = "0.1.0"
+description = "Small ctypes SoapySDR compatibility module for local Antrack use"
+requires-python = ">=3.12"
+
+[tool.setuptools]
+py-modules = ["SoapySDR"]

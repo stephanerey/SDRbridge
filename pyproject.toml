@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sdr-bridge"
+version = "0.3.0"
+description = "Local multi-client I/Q bridge for SDR receivers"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "numpy==2.5.4",
+  "scipy==1.18.1",
+  "PyQt5==5.15.11",
+  "pyqtgraph==0.14.0",
+  "zeroconf==0.151.5",
+  "PyYAML==6.0.3",
+  "jsonschema==4.26.0",
+]
+
+[project.scripts]
+sdr-bridge = "sdr_bridge.app:main"
+sdr-bridge-client = "sdr_bridge.client:main"
+sdr-bridge-native-client = "sdr_bridge.native_client:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

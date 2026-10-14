@@ -1,0 +1,66 @@
+{
+  "schema_version": 2,
+  "policy": "Load only routes whose trigger is true; simple questions load none.",
+  "routes": [
+    {
+      "event": "mutation",
+      "trigger": "Non-trivial mutation or sensitive action",
+      "sources": ["procedures/authority.md"],
+      "requirement": "Confirm authority, scope, protected state and smallest sufficient change."
+    },
+    {
+      "event": "diagnosis",
+      "trigger": "Observed bug, runtime error, failed check or integration problem",
+      "sources": ["procedures/evidence.md"],
+      "requirement": "Use decisive local evidence; do not manufacture a failure."
+    },
+    {
+      "event": "architecture",
+      "trigger": "Durable schema, dependency, external integration or orchestration decision",
+      "sources": ["procedures/impact.md", "procedures/propagation.md"],
+      "requirement": "Check consumers, reversibility, security and final verification."
+    },
+    {
+      "event": "ui",
+      "trigger": "Significant UI behavior or layout change",
+      "sources": ["procedures/ui.md"],
+      "requirement": "Use the existing visual verifier on affected routes only."
+    },
+    {
+      "event": "pass",
+      "trigger": "Validated multi-lot execution or long resume",
+      "sources": ["procedures/passes.md", "procedures/execution.md"],
+      "requirement": "Execute the bounded pass without micro-gates while scope remains stable."
+    },
+    {
+      "event": "knowledge",
+      "trigger": "Target files are unknown or PROJECT_PROFILE knowledge.mode is nexus_kg",
+      "sources": ["procedures/evidence.md"],
+      "requirement": "Use RepoMap only when navigation is needed; use MCP only under MCP_POLICY.yaml."
+    },
+    {
+      "event": "memory",
+      "trigger": "Continuity is useful for a non-trivial task",
+      "sources": ["procedures/memory.md"],
+      "requirement": "Maintain one compact task_state.yaml; read legacy contracts only when present."
+    },
+    {
+      "event": "verification",
+      "trigger": "Final result is ready to prove",
+      "sources": ["procedures/verification.md"],
+      "requirement": "Choose the least expensive final evidence that covers the risk."
+    },
+    {
+      "event": "activation",
+      "trigger": "Build, restart, deploy or runtime activation explicitly requested",
+      "sources": ["procedures/build.md"],
+      "requirement": "Protect the active runtime and one rollback; distinguish every proof layer."
+    },
+    {
+      "event": "resume",
+      "trigger": "Context handoff, compaction or significant interruption",
+      "sources": ["procedures/resume.md"],
+      "requirement": "Load the compact open state and unresolved evidence only."
+    }
+  ]
+}

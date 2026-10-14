@@ -1,0 +1,179 @@
+project:
+  name: "SDRbridge"
+  key: "SDB"
+  base_stack: "Windows 11 / Python 3.12 / C++17 / PyQt5"
+  domain: "SDR RX and IQ distribution"
+  risk_level: "medium"
+
+codex:
+  method_label: "SR Development Method"
+  require_skill_selection: true
+  require_sr_bootstrap_on_resume: true
+  require_domain_skill_for_business_changes: true
+  require_agent_runtime_contract: false
+  require_repo_map: true
+  require_knowledge_gate: true
+  require_self_evaluation_gate: false
+  require_ui_visual_qa_for_ui: true
+  require_current_state_update: full_regime_after_upgrade_or_significant_lot
+  max_agents_md_lines: 120
+  max_agents_md_tokens: 1200
+
+knowledge:
+  mode: "core"
+  core_sources:
+    - docs/codex/CODEBASE_MAP.md
+    - docs/codex/CODEBASE_MAP.generated.md
+    - docs/codex/REPO_MAP_POLICY.md
+  nexus_kg:
+    enabled: false
+    source: null
+    refresh_command: null
+    context_pack: docs/codex/NEXUS_CONTEXT_PACK.md
+    policy_file: docs/codex/MCP_POLICY.yaml
+  doctrine: "RepoMap/KG orientent; le code reel et les tests restent la source finale."
+
+skills:
+  global_policy: "install_only_method_skills_globally"
+  project_local_path: "docs/codex/project-skills"
+  digest: "docs/codex/SKILL_DIGEST.md"
+  allow_project_skill_export_to_global: false
+  method:
+    - aurora-diagnose
+    - aurora-ui-visual-qa
+    - aurora-architecture-check
+    - aurora-lot-runner
+  optional:
+    - aurora-to-prd
+    - aurora-domain-skill-factory
+  deprecated: []
+  domain:
+    - sdrbridge-engineering
+  runtime: []
+
+domain_expertise:
+  bootstrap_required: true
+  required_docs:
+    - docs/domain/DOMAIN_PROFILE.md
+    - docs/domain/GLOSSARY.md
+    - docs/domain/BUSINESS_RULES.md
+    - docs/domain/RISK_REGISTER.md
+    - docs/domain/HUMAN_VALIDATION_RULES.md
+  block_business_changes_without_domain_skill: true
+
+agent_runtime:
+  public_name: "SR Agent Method"
+  method_doc: docs/codex/AI_AGENT_RUNTIME_METHOD.md
+  max_builder_candidates_v1: 5
+  require_bounded_product_action: true
+  require_runtime_shape: true
+  require_internal_representation_contract: true
+  require_user_message_builder: true
+  require_tools_actions_split: true
+  require_routing_policy_when_ambiguous: true
+  require_output_schema: true
+  require_test_cases: true
+  require_human_validation_for_critical_actions: true
+  forbid_llm_generated_sql_execution: true
+
+ui_validation:
+  enabled: true
+  required_for_ui_lots: true
+  migration_policy: "native_qt"
+  runner:
+    command: null
+    status: "to_implement_in_UI_lot"
+    kind: "QtTest_and_Windows_visual_inspection"
+  evidence:
+    directory: "output/qt"
+    report_file: "output/qt/ui-verification-report.json"
+  contract: "docs/product/DESIGN.md"
+  forbid_browser_evidence_substitution: true
+
+sr_harness:
+  public_name: "SR Development Method"
+  require_sr_harness_for_multi_lot: true
+  max_lots_per_autonomous_pass: 4
+  require_user_visible_sr_start: true
+  require_user_visible_sr_close: true
+  require_evidence_gate_before_plan: true
+  require_design_gate_for_ui: true
+  require_ui_test_readiness_gate_for_ui: true
+  require_ui_visual_evidence_gate_for_ui: true
+  require_context_budget_gate: true
+  require_self_evaluation_gate: false
+  task_state_file: docs/codex/tasks/YYYY-MM-DD_slug/task_state.yaml
+  legacy_contracts_readable: true
+  require_conversation_transition_decision: true
+  require_propagation_gate_for_reference_changes: true
+  propagation_gate_policy:
+    require_preflight_before_mutation: true
+    require_postcheck_before_done: true
+    human_validation_required_for:
+      - high
+      - critical
+    human_validation_required_for_strict_mode:
+      - medium
+      - high
+      - critical
+    legacy_contract_policy: "warn_not_block"
+  default_lot_order:
+    - reopened
+    - validated
+  stop_conditions:
+    - red_gate
+    - missing_business_rule
+    - ambiguous_migration
+    - destructive_change
+    - external_secret_needed
+    - user_testing_required
+    - context_budget_risk
+
+sr_passes:
+  enabled: true
+  passes_file: docs/codex/SR_PASSES.yaml
+  max_lots_per_pass: 5
+  require_pass_planning_gate: true
+  require_preflight_before_pass: true
+  allow_grouped_e2e: true
+  require_pass_contract: false
+  migration_policy: "non_breaking_additive"
+  pass_runtime_goal:
+    enabled: true
+    builder_script: scripts/codex/build_pass_runtime_goal.py
+    template_file: docs/codex/tasks/_TEMPLATE/pass_runtime_goal.md
+    max_goal_command_chars: 1000
+    hard_limit: 4000
+    allow_planned_dry_run: true
+    executable_statuses:
+      - validated
+      - in_progress
+    forbid_silent_next_pass_chain: true
+    done_requires_user_validation_when_e2e_required: true
+
+lot_naming:
+  convention: "<PROJECT_KEY>-<AREA>-<SEQ>"
+  examples:
+    - "SDB-DESIGN-001"
+    - "SDB-API-001"
+    - "SDB-AUDIT-001"
+  legacy_policy: "keep legacy IDs but add legacy_lot_id when reopening or migrating"
+
+autonomy_run:
+  default_batch_size: 3
+  require_gate_report_after_each_lot: true
+  allow_continue_when_gates_green: true
+
+context_budget:
+  context_window_tokens: null
+  mode: "separate_dimensions"
+  check_timing: "before_each_significant_response"
+  compact_command: ".venv/Scripts/python.exe scripts/codex/context_budget_report.py --root . --compact"
+  hide_green_status: true
+  require_transition_decision: true
+
+verification:
+  unit_tests: ".venv/Scripts/python.exe -m unittest discover -s tests -v"
+  method: ".venv/Scripts/python.exe scripts/codex/sr_post_install_check.py --root . --json"
+  ui_verify: null
+  ui_readiness: "UI lot must add runnable Qt tests and capture evidence; absence is not pass."

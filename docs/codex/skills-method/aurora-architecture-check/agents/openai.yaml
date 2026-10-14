@@ -1,0 +1,3 @@
+interface:
+  display_name: "Aurora Architecture Check"
+  short_description: "Verifier impact et reversibilite"

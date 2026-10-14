@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdrbridge.local/schema/preset-v1.json",
+  "type": "object",
+  "required": ["schema_version", "name", "source", "device_id", "radio", "output_profiles", "destinations"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "name": {"type": "string", "minLength": 1, "maxLength": 128},
+    "source": {"enum": ["simulated", "soapy", "native", "replay"]},
+    "device_id": {"type": ["string", "null"]},
+    "radio": {"type": "object"},
+    "rf_profile_suspended": {"type": "boolean"},
+    "output_profiles": {"type": "array", "items": {"type": "object"}},
+    "destinations": {"type": "array", "items": {"type": "object"}},
+    "recorder_directory": {"type": ["string", "null"]}
+  },
+  "additionalProperties": false
+}

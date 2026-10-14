@@ -1,0 +1,55 @@
+version: "0.2"
+project: "SDRbridge"
+project_key: "SDB"
+updated_at: "2026-10-14"
+pass_policy:
+  enabled: true
+  max_lots_per_pass: 4
+  require_preflight_before_pass: true
+  forbid_silent_next_pass_chain: true
+  note: "START_IMPLEMENTATION autorise explicitement 002 puis 003 puis 004 ; aucun enchaînement au-delà."
+passes:
+  - pass_id: SDB-PASS-001
+    title: "Préparation"
+    status: done
+    lots: ["SDB-BASE-001"]
+    preflight:
+      required_before_start: ["Lire état courant et S6", "Confirmer code et consommateurs du lot", "Vérifier dépendances et preuve de conception"]
+      human_validation_required: []
+    e2e_strategy:
+      mode: not_required
+      items: []
+    stop_on: ["gate critique rouge", "autorisation externe absente pour action concernée", "contexte insuffisant sans état de reprise"]
+  - pass_id: SDB-PASS-002
+    title: "Cœur, mémoire, DSP et RF"
+    status: done
+    lots: ["SDB-CORE-001","SDB-RING-001","SDB-DSP-001","SDB-RF-001"]
+    preflight:
+      required_before_start: ["Lire état courant et S6", "Confirmer code et consommateurs du lot", "Vérifier dépendances et preuve de conception"]
+      human_validation_required: []
+    e2e_strategy:
+      mode: grouped_at_pass_end
+      items: ["Chaîne simulée et cinq lecteurs ; gabarit DSP"]
+    stop_on: ["gate critique rouge", "autorisation externe absente pour action concernée", "contexte insuffisant sans état de reprise"]
+  - pass_id: SDB-PASS-003
+    title: "Réseau, interface et exploitation"
+    status: done
+    lots: ["SDB-NET-001","SDB-UI-001","SDB-OPS-001"]
+    preflight:
+      required_before_start: ["Lire état courant et S6", "Confirmer code et consommateurs du lot", "Vérifier dépendances et preuve de conception"]
+      human_validation_required: []
+    e2e_strategy:
+      mode: grouped_at_pass_end
+      items: ["Parcours GUI/headless vers UDP et capture/replay"]
+    stop_on: ["gate critique rouge", "autorisation externe absente pour action concernée", "contexte insuffisant sans état de reprise"]
+  - pass_id: SDB-PASS-004
+    title: "Qualification"
+    status: blocked
+    lots: ["SDB-QUAL-001"]
+    preflight:
+      required_before_start: ["Lire état courant et S6", "Confirmer code et consommateurs du lot", "Vérifier dépendances et preuve de conception"]
+      human_validation_required: ["Essais matériels et activation de clients installés, séparément"]
+    e2e_strategy:
+      mode: grouped_at_pass_end
+      items: ["AC-14/16/17 et matrice de qualification"]
+    stop_on: ["gate critique rouge", "autorisation externe absente pour action concernée", "contexte insuffisant sans état de reprise"]

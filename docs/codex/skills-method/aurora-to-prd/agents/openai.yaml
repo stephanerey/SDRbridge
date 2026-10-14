@@ -1,0 +1,3 @@
+interface:
+  display_name: "Aurora To PRD"
+  short_description: "Transformer un besoin vague en PRD"

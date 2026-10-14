@@ -1,0 +1,20 @@
+# SR_INBOX.yaml - capture a chaud des demandes, bugs, idees et decisions
+
+version: "0.1"
+project: "{{PROJECT_NAME}}"
+updated_at: null
+
+items:
+  - id: "inbox-example-documents-sort"
+    type: "bug" # bug | idea | decision | user_feedback | design_feedback | debt | question
+    source: "user_feedback"
+    created_at: null
+    summary: "La liste documents n'est pas triee par derniere mise a jour et semble ignorer certains source_app."
+    details:
+      - "Tri par defaut attendu : derniere mise a jour descendante."
+      - "Dates incoherentes observees."
+      - "Le mode sans filtre ne semble pas remonter tous les documents autorises."
+    related_lots: []
+    status: "to_triage" # to_triage | converted_to_lot | dismissed | duplicate | waiting_user
+    decision_needed: true
+    notes: []

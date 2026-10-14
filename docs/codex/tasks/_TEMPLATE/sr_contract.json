@@ -1,0 +1,209 @@
+{
+  "schema_version": "3.1.0",
+  "task_id": "YYYY-MM-DD_slug",
+  "lot_id": "SR-AREA-000",
+  "task_type": "method",
+  "status": "repair",
+  "objective": "Objectif verifiable du lot.",
+  "origin": {
+    "pass_id": null,
+    "lot_ids": ["SR-AREA-000"],
+    "validation_source": "Message utilisateur exact ou decision referencee."
+  },
+  "intake": {
+    "classification": "new_requirement",
+    "matched_requirement_ids": [],
+    "creates_new_lot": false,
+    "feedback": null
+  },
+  "lineage": {
+    "parent_contract": null,
+    "inherited_open_requirement_ids": [],
+    "reopened_lot_ids": [],
+    "next_coherent_scope": "Traiter ensemble toutes les exigences ouvertes de ce lot."
+  },
+  "new_lot_justification": null,
+  "validated_requests": [
+    {
+      "id": "REQ-AREA-001",
+      "source": {
+        "kind": "user_validation",
+        "reference": "Message utilisateur ou source verifiee."
+      },
+      "requirement_type": "method",
+      "requirement": "Intention utilisateur granulaire, critere important, demande UI/UX ou exclusion validee.",
+      "origin": {
+        "pass_id": null,
+        "lot_id": "SR-AREA-000"
+      },
+      "implementation_status": "not_started",
+      "evidence_status": "missing",
+      "affected_files": [],
+      "affected_components": [],
+      "expected_evidence": [
+        {
+          "kind": "unit",
+          "required": true,
+          "description": "Test automatise cible."
+        }
+      ],
+      "obtained_evidence": [],
+      "remaining_work": ["Implementer l'exigence."],
+      "remaining_tests": ["Executer le test cible."],
+      "history": [],
+      "blocked_reason": null,
+      "disposition": null,
+      "decision": "repair"
+    }
+  ],
+  "lot_completion_gate": {
+    "status": "fail",
+    "derived_from_validated_requests": true,
+    "validated_scope_source": "Message utilisateur exact ou decision referencee.",
+    "scope_reduction_requested": false,
+    "scope_reduction_validated_by_user": false,
+    "coverage_table": [
+      {
+        "requirement_id": "REQ-AREA-001",
+        "requirement": "Intention utilisateur granulaire, critere important, demande UI/UX ou exclusion validee.",
+        "implementation_status": "not_started",
+        "evidence_status": "missing",
+        "decision": "repair",
+        "proof": [],
+        "remaining_work": ["Implementer l'exigence."],
+        "remaining_tests": ["Executer le test cible."]
+      }
+    ],
+    "ui_ux_required": false,
+    "visual_evidence": [],
+    "decision": "repair"
+  },
+  "closure": {
+    "overall_claim": "not_complete",
+    "summary": "L'exigence reste a implementer et a verifier.",
+    "open_requirement_ids": ["REQ-AREA-001"]
+  },
+  "scope": {
+    "in": [],
+    "out": [],
+    "allowed_paths": [],
+    "forbidden_paths": [".env", ".env.*", ".git/**"]
+  },
+  "product_truth": {"required": false, "items": []},
+  "backlog_mutation": {
+    "status": "not_applicable",
+    "structural_change_detected": false,
+    "mutation_required": false,
+    "sr_inbox_updated": false,
+    "sr_lots_updated": false,
+    "affected_lots": [],
+    "created_lots": [],
+    "reopened_lots": [],
+    "blocked_lots": [],
+    "superseded_lots": [],
+    "not_updated_reason": "Template non execute.",
+    "decision": "no_backlog_mutation_required"
+  },
+  "global_impact": {
+    "required": false,
+    "status": "not_applicable",
+    "surfaces_reviewed": [],
+    "impacted_lots": [],
+    "new_lots_to_create": [],
+    "lots_to_reopen_or_block": [],
+    "assumptions": [],
+    "open_questions": [],
+    "sequencing_recommendation": "not_required"
+  },
+  "propagation": {
+    "required": false,
+    "status": "not_applicable",
+    "trigger": "not_applicable",
+    "risk_level": "not_applicable",
+    "preflight": {
+      "done": false,
+      "summary": "Template non execute.",
+      "human_validation_required": false,
+      "human_validation_received": false
+    },
+    "changed_symbols": [],
+    "affected_surfaces": [],
+    "consumers_checked": [],
+    "reference_searches": [],
+    "remaining_references": [],
+    "ignored_references": [],
+    "compatibility_strategy": "not_required",
+    "verification": [],
+    "decision": "not_applicable"
+  },
+  "evidence": {"sources_read": [], "code_files_read": [], "tests_or_logs": []},
+  "design_evidence": {
+    "status": "pending",
+    "code_read_required": true,
+    "candidate_files": [],
+    "confirmed_files_read": [],
+    "symbols_or_routes_checked": [],
+    "tests_or_logs_checked": [],
+    "assumptions_remaining": [],
+    "open_questions": [],
+    "not_applicable_reason": null,
+    "status_ceiling_if_not_pass": "proposed"
+  },
+  "ui_validation": {
+    "required": false,
+    "routes": [],
+    "test_readiness": {
+      "status": "not_applicable",
+      "auth_required": false,
+      "auth_mode": "none",
+      "state_available": null,
+      "state_valid": null,
+      "login_redirect_detected": false,
+      "blocked_reason": null
+    },
+    "visual_evidence": {
+      "status": "not_applicable",
+      "routes": [],
+      "viewports": [],
+      "screenshots": [],
+      "report_file": null,
+      "console_errors": 0,
+      "page_errors": 0,
+      "request_failed": 0,
+      "horizontal_overflow_detected": false,
+      "unexpected_login_redirect": false
+    }
+  },
+  "skills": {"method": [], "domain": []},
+  "plan": [],
+  "findings": [],
+  "decisions": [],
+  "implementation": {"app_code_changed": false, "changed_files": []},
+  "verification": {"commands_run": [], "commands_failed": [], "not_run_reason": "Template non execute."},
+  "gates": {
+    "fact": "pending",
+    "evidence": "pending",
+    "lot_design_evidence": "pending",
+    "scope": "pending",
+    "product_truth": "pending",
+    "backlog_mutation": "pending",
+    "global_impact": "pending",
+    "lot_completion": "fail",
+    "lot_dependency_reconciliation": "pending",
+    "propagation": "pending",
+    "ui_test_readiness": "not_applicable",
+    "ui_visual_evidence": "not_applicable",
+    "verification": "pending",
+    "self_evaluation": "pending",
+    "context_budget": "pending"
+  },
+  "e2e": {"required": false, "items": []},
+  "context": {"status": "not_checked", "report_path": null},
+  "transition": {
+    "decision": "not_applicable",
+    "reason": "Template non execute.",
+    "next_session_prompt_required": false,
+    "next_session_prompt_path": null,
+    "next_user_prompt": null
+  }
+}

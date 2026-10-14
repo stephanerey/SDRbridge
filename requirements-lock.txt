@@ -1,0 +1,16 @@
+attrs==26.1.0
+colorama==0.4.6
+ifaddr==0.2.0
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+numpy==2.5.4
+PyQt5==5.15.11
+PyQt5-Qt5==5.15.2
+PyQt5_sip==12.20.0
+pyqtgraph==0.14.0
+PyYAML==6.0.3
+referencing==0.37.0
+rpds-py==2026.9.1
+scipy==1.18.1
+typing_extensions==4.16.0
+zeroconf==0.151.5

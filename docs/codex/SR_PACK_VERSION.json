@@ -1,0 +1,103 @@
+{
+  "pack": "auroramind_codex_operating_pack",
+  "version": "4.1.0",
+  "release_status": "released",
+  "released_at": "2026-09-24",
+  "patch_notes": [
+    {
+      "date": "2026-09-24",
+      "scope": "lean_harness_version_agnostic_convergence",
+      "change": "Reduce permanent context, remove TDD and procedural cognitive skills, introduce a bounded MCP policy and compact task state, reconcile method-owned profile and AGENTS content by observed state, remove recognized obsolete artifacts, and qualify upgrades without source-version branching."
+    },
+    {
+      "date": "2026-09-17",
+      "scope": "context_architecture_v4",
+      "change": "Progressive routing, preserved contracts and gates, content-based transactional installation, conservative legacy upgrades, derived read-only views and explicit context telemetry semantics. Released as 4.0.0; existing applications require an explicit upgrade."
+    },
+    {
+      "date": "2026-08-24",
+      "scope": "release_documentation_coherence",
+      "change": "Add a canonical changelog, explicit unreleased/released metadata, tested multilingual public prompts, aligned installation guides, and automated version/changelog/link parity validation."
+    },
+    {
+      "date": "2026-08-24",
+      "scope": "legacy_layout_upgrade_continuity",
+      "change": "Cover representative SR 2.2.0 through 3.0.0 and unknown/partial layouts with upgrade regressions, synchronize managed AGENTS gates, allow an empty SR_PASSES registry, preserve project-owned state, and require a green post-install check before upgrade success."
+    },
+    {
+      "date": "2026-08-24",
+      "scope": "persistent_requirement_traceability",
+      "change": "Add SR Contract 3.1.0 and Loop Contract 1.1 with separate implementation/evidence states, derived Completion Gates, consolidated reopening, inherited open requirements, guarded new-lot creation, user-facing request tables, and additive 3.0.0 compatibility."
+    },
+    {
+      "date": "2026-08-13",
+      "scope": "ui_verification_harness",
+      "change": "Add SR UI Verification Harness: project-level ui_validation config, sr_ui_verify.mjs Playwright runner, UI Test Readiness Gate, UI Visual Evidence Gate, sr_contract validation, aurora-ui-visual-qa skill, and additive fresh-install/legacy-upgrade compatibility."
+    },
+    {
+      "date": "2026-08-08",
+      "scope": "upgrade_legacy_contract_compatibility",
+      "change": "Treat pre-2026-08-08 task contracts missing lot_completion_gate as legacy warnings during audit_sr_task_contracts, while keeping newer contracts strict."
+    },
+    {
+      "date": "2026-08-08",
+      "scope": "upgrade_pass_lot_closure_subphase_guard",
+      "change": "Clarify in prompt 05 that SR upgrades must not close, promote, or reclassify application lots or passes as an implicit side effect; explicitly requested closure is allowed only as a separate validated sub-phase with its own SR contract and evidence."
+    },
+    {
+      "date": "2026-08-08",
+      "scope": "upgrade_prompt_hardening",
+      "change": "Harden prompt 05 for recurring upgrades from heterogeneous SR Method installs: old, partial, locally adapted, or unknown versions now follow a diagnostic, classification, preservation, validation, additive-upgrade, verification, and mandatory realignment flow."
+    },
+    {
+      "date": "2026-08-08",
+      "scope": "lot_design_evidence_gate",
+      "change": "Add Lot Design Evidence Gate to prevent executable lot planning before Codex has identified candidate files and read the relevant code, while preserving proposed lots as exploratory and legacy terminal lots as non-regressive."
+    },
+    {
+      "date": "2026-08-08",
+      "scope": "pass_runtime_goal",
+      "change": "Add Pass Runtime Goal support for Codex CLI /goal: generated pass_runtime_goal.md, bounded goal command length, Goal Length Gate, grouped E2E protection, and pass closure rules that preserve user_testing/done validation semantics."
+    },
+    {
+      "date": "2026-08-04",
+      "scope": "pack_tooling",
+      "change": "Add Aurora SR Cockpit as an optional read-only operator dashboard under tools/sr-cockpit, without installing it into target SR projects."
+    },
+    {
+      "date": "2026-08-04",
+      "scope": "propagation_gate",
+      "change": "Add a Propagation Gate / Reference Integrity Gate for shared symbols and contracts, with pre-mutation impact notice, human validation when risk is non-local, post-mutation reference checks, and legacy-compatible warnings for historical contracts."
+    },
+    {
+      "date": "2026-07-22",
+      "scope": "lot_completion_gate",
+      "change": "Require explicit coverage of every validated lot requirement before closure and reject done when coverage is partial, blocked or awaiting E2E."
+    },
+    {
+      "date": "2026-07-20",
+      "scope": "pass_contract_validator",
+      "change": "Recognize ordered inter-pass dependencies for proposed/planned pass audits while keeping executable passes strict."
+    }
+  ],
+  "features": [
+    "lean_agents_kernel",
+    "conditional_routes",
+    "three_gate_model",
+    "no_tdd_workflow",
+    "compact_task_state",
+    "mcp_policy_contract",
+    "deferred_mcp_tools",
+    "version_agnostic_convergence",
+    "obsolete_managed_artifact_removal",
+    "project_state_preservation",
+    "separate_token_dimensions",
+    "source_only_qualification_assets",
+    "legacy_layout_upgrade_fixtures",
+    "legacy_task_contract_audit",
+    "localized_public_docs",
+    "post_install_check",
+    "ui_verification_harness",
+    "runtime_agent_contracts"
+  ]
+}

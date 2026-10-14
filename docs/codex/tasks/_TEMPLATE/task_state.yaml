@@ -1,0 +1,16 @@
+schema_version: 1
+task_id: "YYYY-MM-DD_slug"
+status: planned # planned | working | verified | user_testing | blocked
+objective: ""
+scope:
+  allowed: []
+  excluded: []
+requirements: []
+decisions: []
+evidence: []
+changed_files: []
+verification:
+  status: pending # pending | pass | fail | unavailable
+  checks: []
+next_action: null
+stop_reason: null
