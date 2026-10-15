@@ -879,10 +879,16 @@ class BridgeWindow(QtWidgets.QMainWindow):
         event.accept()
 
 
-def run_gui(bridge: SDRBridge, runtime: Any | None = None) -> int:
+def prepare_gui() -> QtWidgets.QApplication:
+    """Load the bundled Qt runtime before a backend can alter DLL search paths."""
     application = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     application.setApplicationName("SDRbridge")
     application.setStyle("Fusion")
+    return application
+
+
+def run_gui(bridge: SDRBridge, runtime: Any | None = None) -> int:
+    application = prepare_gui()
     window = BridgeWindow(bridge, runtime)
     window.show()
     return application.exec_()

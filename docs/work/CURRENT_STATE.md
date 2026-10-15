@@ -18,7 +18,8 @@
 - Deux processus simultanés sont verts avec le RSPdx natif (≈1,910 MS/s) et le RSP1 Soapy (≈1,934 MS/s), zéro drop/erreur sur 10 s.
 - Le paquet portable énumère les deux séries physiques et termine proprement en mode CLI sans console.
 - L'installateur v0.4.0 a été installé dans un dossier isolé, son exécutable chargé, les connecteurs SDR++/HDSDR vérifiés, puis il a été désinstallé sans reste.
-- SHA-256 installateur : `D8D2121809D0F1F19BD60EDFC1781CC35AC84EFEEB2562ED1D3597D55EFA3BC3`.
+- SHA-256 installateur : `7FD9131EB4C0EC467C22B7EE288BFA514CBE9EDC6C300DA61C5DF93C4DDC2FFB`.
+- Le smoke de l'installation réelle ouvre la GUI Soapy, affiche le titre v0.4.0, puis s'arrête proprement avec le code 0 ; le conflit entre Qt embarqué 5.15.2 et Pothos Qt 5.15.3 est corrigé par l'ordre d'initialisation.
 
 ## Réserves explicites
 

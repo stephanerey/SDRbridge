@@ -405,6 +405,20 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 if source is not None:
                     source.close()
+        gui_application = None
+        gui_runner = None
+        if not args.headless:
+            # PothosSDR ships another Qt build and prepends its bin directory
+            # while loading Soapy. Initialize our bundled platform plugin first
+            # so Windows cannot mix both Qt runtimes in the same process.
+            from .gui import prepare_gui, run_gui
+
+            gui_application = prepare_gui()
+            gui_runner = run_gui
+            logger.info(
+                "bundled Qt runtime initialized before SDR backend",
+                extra={"code": "GUI_RUNTIME_READY"},
+            )
         try:
             configured_udp = args.udp if args.udp is not None else config.get("udp_destinations")
             if not configured_udp and config.get("udp_destination"):
@@ -432,8 +446,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.headless:
                 exit_code = run_headless(runtime)
             else:
-                from .gui import run_gui
-                exit_code = run_gui(runtime.bridge, runtime)
+                exit_code = gui_runner(runtime.bridge, runtime)
             return exit_code
         except KeyboardInterrupt:
             logger.info("application interrupted by user", extra={"code": "APPLICATION_INTERRUPTED"})

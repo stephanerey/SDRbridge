@@ -12,6 +12,7 @@
 - validation du RSPdx natif et du clone RSP1 Soapy en deux processus simultanés ;
 - version de l’application et du packaging portée à 0.4.0.
 - raccourcis installés configurés pour ouvrir directement le catalogue Soapy, RX arrêté.
+- initialisation du Qt embarqué avant Pothos/Soapy afin d'éviter le conflit Qt 5.15.2/5.15.3 au démarrage installé.
 
 ## 0.3.0 — publiée
 
