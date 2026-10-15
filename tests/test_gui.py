@@ -4,10 +4,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import time
 import unittest
 
+import numpy as np
+
 from PyQt5 import QtTest, QtWidgets
 
 from sdr_bridge.bridge import SDRBridge
-from sdr_bridge.gui import BridgeWindow
+from sdr_bridge.gui import BridgeWindow, SpectrumService
+from sdr_bridge.model import RadioConfig
+from sdr_bridge.native_sdrplay import NativeSDRplaySource
 from sdr_bridge.source import SimulatedSource
 
 
@@ -45,7 +49,7 @@ class QtInterfaceTests(unittest.TestCase):
 
     def test_tabs_effective_state_invalid_draft_and_five_clients(self):
         self.assertEqual([self.window.tabs.tabText(i) for i in range(self.window.tabs.count())], [
-            "Radio", "Sorties et clients", "Profils RF", "Captures", "Diagnostics",
+            "Radio", "Outputs & Clients", "RF Profiles", "Captures", "Diagnostics",
         ])
         clients = [self.bridge.register_client(f"client-{index}") for index in range(5)]
         try:
@@ -54,8 +58,8 @@ class QtInterfaceTests(unittest.TestCase):
             self.window.frequency_edit.setText("invalide")
             self.window._apply_config()
             self.assertTrue(self.window.error_banner.isVisible())
-            self.assertIn("Configuration refusée", self.window.error_banner.text())
-            self.assertIn("Effectif", self.window.effective_label.text())
+            self.assertIn("Configuration rejected", self.window.error_banner.text())
+            self.assertFalse(hasattr(self.window, "effective_label"))
         finally:
             for client_id, _ in clients:
                 self.bridge.unregister_client(client_id)
@@ -70,7 +74,7 @@ class QtInterfaceTests(unittest.TestCase):
 
     def test_simulation_indicator_and_adjustable_relative_db_scale(self):
         self.window.refresh()
-        self.assertIn("SIMULATION", self.window.connection_label.text())
+        self.assertIn("Simulation", self.window.connection_label.text())
         self.window.y_min_spin.setValue(-130)
         self.window.y_max_spin.setValue(10)
         self.assertEqual(self.window.normal_plot.getViewBox().viewRange()[1], [-130.0, 10.0])
@@ -90,6 +94,70 @@ class QtInterfaceTests(unittest.TestCase):
         self.assertGreater(self.bridge.blocks_written, 0)
         self.assertGreater(self.bridge.epoch, before_epoch)
         self.assertLess(time.perf_counter() - started, 0.8)
+
+    def test_sampling_rates_and_bandwidth_options_follow_hardware_rate(self):
+        native = object.__new__(NativeSDRplaySource)
+        self.assertEqual(native.capabilities(native.DEVICE_ID).sample_rates_sps, (2_000_000, 6_000_000, 8_000_000, 10_000_000))
+        self.window._capabilities = {
+            "bandwidths_hz": (200_000, 300_000, 600_000, 1_536_000, 5_000_000, 6_000_000, 7_000_000, 8_000_000),
+        }
+        self.window._refresh_bandwidth_combo(2_000_000, 1_536_000)
+        self.assertEqual(
+            [self.window.bandwidth_combo.itemData(i) for i in range(self.window.bandwidth_combo.count())],
+            [200_000, 300_000, 600_000, 1_536_000],
+        )
+        self.window._refresh_bandwidth_combo(10_000_000, 1_536_000)
+        self.assertEqual(self.window.bandwidth_combo.count(), 8)
+
+    def test_antrack_style_digit_frequency_control_changes_one_digit(self):
+        self.window.frequency_control.set_value_hz(144_300_000)
+        values = []
+        self.window.frequency_control.valueChanged.connect(values.append)
+        self.window.frequency_control._apply_delta(1_000)
+        self.assertEqual(self.window.frequency_control.value_hz(), 144_301_000)
+        self.assertEqual(values[-1], 144_301_000)
+        self.assertFalse(hasattr(self.window, "apply_button"))
+
+    def test_spectrum_uses_fixed_dbfs_reference(self):
+        t = np.arange(4096, dtype=np.float32)
+        tone = np.exp(2j * np.pi * 37 * t / len(t))
+        quiet = SpectrumService.compute_dbfs(0.1 * tone)
+        loud = SpectrumService.compute_dbfs(0.2 * tone)
+        peak = int(np.argmax(quiet))
+        self.assertAlmostEqual(float(loud[peak] - quiet[peak]), 20 * np.log10(2), places=2)
+
+    def test_spectrum_poll_does_not_starve_at_multi_msps(self):
+        source = SimulatedSource(block_samples=4096, realtime=True)
+        bridge = SDRBridge(
+            source,
+            RadioConfig(sample_rate_sps=8_000_000, bandwidth_hz=8_000_000),
+            block_samples=4096,
+            slots=64,
+        )
+        bridge.start()
+        service = SpectrumService(bridge)
+        try:
+            deadline = time.perf_counter() + 0.35
+            calls = 0
+            while time.perf_counter() < deadline:
+                started = time.perf_counter()
+                service._poll()
+                self.assertLess(time.perf_counter() - started, 0.05)
+                calls += 1
+                time.sleep(0.005)
+            self.assertGreater(calls, 20)
+            self.assertGreater(service.fft_count, 5)
+            self.assertGreater(bridge.blocks_written, 100)
+        finally:
+            service.close()
+            bridge.close()
+
+    def test_toolbar_uses_icons_and_discreet_connection_indicator(self):
+        self.assertIsInstance(self.window.start_button, QtWidgets.QToolButton)
+        self.assertFalse(self.window.start_button.icon().isNull())
+        self.assertIsInstance(self.window.compact_button, QtWidgets.QToolButton)
+        self.assertIn("Connected", self.window.state_label.text())
+        self.assertNotIn("SDRplay direct API", self.window.windowTitle())
 
 
 if __name__ == "__main__":

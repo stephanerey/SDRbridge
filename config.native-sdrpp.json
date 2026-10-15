@@ -29,6 +29,6 @@
   "auto_connect": false,
   "auto_start": true,
   "udp_destination": "127.0.0.1:7355",
-  "udp_transport": "sdrpp_raw_cs16",
+  "udp_transport": "sdbu_v2",
   "log_level": "INFO"
 }

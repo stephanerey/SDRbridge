@@ -8,6 +8,7 @@ from __future__ import annotations
 import ctypes
 import json
 from multiprocessing import shared_memory
+import os
 from pathlib import Path
 import socket
 import struct
@@ -26,6 +27,8 @@ GLOBAL = struct.Struct("<4sIIIIIIIQQ")
 SLOT = struct.Struct("<IIQQQQIIQII")
 HEADER_BYTES = 128
 SLOT_HEADER_BYTES = 64
+CONTROL_HOST = os.environ.get("SDRBRIDGE_CONTROL_HOST", "127.0.0.1")
+CONTROL_PORT = int(os.environ.get("SDRBRIDGE_CONTROL_PORT", "47631"))
 
 
 class StreamResult:
@@ -63,7 +66,7 @@ def listModules():
 
 def Device_enumerate(args=None):
     try:
-        sock = socket.create_connection(("127.0.0.1", 47631), timeout=0.5)
+        sock = socket.create_connection((CONTROL_HOST, CONTROL_PORT), timeout=0.5)
         stream = sock.makefile("rwb")
         stream.write(b'{"action":"status"}\n'); stream.flush()
         response = json.loads(stream.readline())
@@ -107,7 +110,7 @@ class Device:
         if rate not in {96_000, 192_000}:
             raise RuntimeError("SDRbridge ANTRACK profile supports 96 or 192 kS/s")
         profile = "antrack-96k" if rate == 96_000 else "antrack-192k"
-        self._sock = socket.create_connection(("127.0.0.1", 47631), timeout=3)
+        self._sock = socket.create_connection((CONTROL_HOST, CONTROL_PORT), timeout=3)
         self._file = self._sock.makefile("rwb")
         response = self._request({"action": "register", "name": "ANTRACK", "profile_id": profile, "profile_revision": 1})
         descriptor = response["ring"]

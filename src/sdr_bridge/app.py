@@ -34,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--native-control-port", type=int, help="port natif JSON v1")
     parser.add_argument("--enable-network", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--auto-start", action=argparse.BooleanOptionalAction, default=None)
-    parser.add_argument("--udp", metavar="HOST:PORT", help="destination opérateur UDP")
+    parser.add_argument("--udp", metavar="HOST:PORT", action="append", help="destination opérateur UDP (répétable)")
     parser.add_argument("--udp-transport", choices=("sdbu_v2", "sdrpp_raw_cs16"), default=None, help="format UDP opérateur")
     parser.add_argument("--frequency", type=int)
     parser.add_argument("--gain-reduction", type=int)
@@ -71,7 +71,7 @@ def merged_config(args: argparse.Namespace) -> tuple[Path, dict]:
 
 
 class AppRuntime:
-    def __init__(self, config: dict, *, operator_udp: str | None = None, operator_udp_transport: str = "sdbu_v2"):
+    def __init__(self, config: dict, *, operator_udp: str | list[str] | None = None, operator_udp_transport: str = "sdbu_v2"):
         self.config = config
         buffers = config["buffers"]
         source_kind = config["source"]
@@ -130,8 +130,19 @@ class AppRuntime:
                 self.bridge, host, int(network["control_port"]), token=token,
                 allow_lan=host not in {"127.0.0.1", "localhost", "::1"},
             )
-        self.operator_udp_spec = operator_udp
+        if operator_udp is None:
+            configured = config.get("udp_destinations")
+            if configured is None or (configured == [] and config.get("udp_destination")):
+                configured = config.get("udp_destination")
+            operator_udp = configured
+        if isinstance(operator_udp, str):
+            operator_udp = [operator_udp]
+        self.operator_udp_specs = list(operator_udp or [])
         self.operator_udp_transport = operator_udp_transport
+        self.operator_udps: dict[str, UDPStreamer] = {}
+        # Compatibility alias for older GUI/automation code. It points to the
+        # first configured destination, while operator_udps contains all of
+        # them.
         self.operator_udp: UDPStreamer | None = None
         self.watchdog = WatchdogService(self.bridge)
         self.recorder: SigMFRecorder | None = None
@@ -145,13 +156,51 @@ class AppRuntime:
             self.native_control.start()
         if start_rx:
             self.bridge.start()
-        if self.operator_udp_spec:
-            host, raw_port = self.operator_udp_spec.rsplit(":", 1)
-            if host not in {"127.0.0.1", "localhost"} and not self.config["network"]["enabled"]:
-                raise ValueError("LAN UDP requires network.enabled and explicit interface policy")
-            self.operator_udp = UDPStreamer(self.bridge.ring, (host, int(raw_port)), transport=self.operator_udp_transport)
-            self.operator_udp.start()
+        for spec in self.operator_udp_specs:
+            self.add_udp_destination(spec, self.operator_udp_transport)
         self.watchdog.start()
+
+    @staticmethod
+    def _parse_udp_destination(spec: str) -> tuple[str, int]:
+        try:
+            host, raw_port = str(spec).rsplit(":", 1)
+            port = int(raw_port)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("UDP destination must be HOST:PORT") from exc
+        if not host or not 1024 <= port <= 65535:
+            raise ValueError("UDP destination port must be between 1024 and 65535")
+        return host, port
+
+    def add_udp_destination(self, spec: str, transport: str | None = None) -> dict:
+        """Start one independent operator UDP destination and return metrics."""
+        host, port = self._parse_udp_destination(spec)
+        if host not in {"127.0.0.1", "localhost", "::1"} and not self.config["network"]["enabled"]:
+            raise ValueError("LAN UDP requires network.enabled and explicit interface policy")
+        key = f"{host}:{port}"
+        if key in self.operator_udps:
+            raise ValueError(f"UDP destination already exists: {key}")
+        streamer = UDPStreamer(self.bridge.ring, (host, port), transport=transport or self.operator_udp_transport)
+        self.operator_udps[key] = streamer
+        try:
+            streamer.start()
+        except Exception:
+            self.operator_udps.pop(key, None)
+            raise
+        if self.operator_udp is None:
+            self.operator_udp = streamer
+        return streamer.destination.snapshot()
+
+    def remove_udp_destination(self, spec: str) -> None:
+        host, port = self._parse_udp_destination(spec)
+        key = f"{host}:{port}"
+        streamer = self.operator_udps.pop(key, None)
+        if streamer is None:
+            return
+        streamer.stop()
+        self.operator_udp = next(iter(self.operator_udps.values()), None)
+
+    def udp_destinations_snapshot(self) -> list[dict]:
+        return [streamer.destination.snapshot() for streamer in self.operator_udps.values()]
 
     def start_recording(self, base_path: str, profile_id: str, revision: int = 1) -> None:
         if self.recorder is not None:
@@ -186,8 +235,10 @@ class AppRuntime:
         self._closed = True
         self.stop_recording("arrêt application")
         self.watchdog.stop()
-        if self.operator_udp:
-            self.operator_udp.stop()
+        for streamer in list(self.operator_udps.values()):
+            streamer.stop()
+        self.operator_udps.clear()
+        self.operator_udp = None
         if self.native_control:
             self.native_control.close()
         self.legacy_control.close()
@@ -220,9 +271,12 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=getattr(logging, config["log_level"]), format="%(asctime)s %(levelname)s %(name)s %(message)s")
     runtime: AppRuntime | None = None
     try:
+        configured_udp = args.udp if args.udp is not None else config.get("udp_destinations")
+        if not configured_udp and config.get("udp_destination"):
+            configured_udp = config.get("udp_destination")
         runtime = AppRuntime(
             config,
-            operator_udp=args.udp if args.udp is not None else config.get("udp_destination"),
+            operator_udp=configured_udp,
             operator_udp_transport=args.udp_transport or config.get("udp_transport", "sdbu_v2"),
         )
         runtime.start(start_rx=bool(args.headless or config["auto_start"]))

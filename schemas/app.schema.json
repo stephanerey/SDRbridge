@@ -49,6 +49,11 @@
     "auto_connect": {"type": "boolean"},
     "auto_start": {"type": "boolean"},
     "udp_destination": {"type": ["string", "null"], "pattern": "^[^:]+:[0-9]+$"},
+    "udp_destinations": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^[^:]+:[0-9]+$"},
+      "uniqueItems": true
+    },
     "udp_transport": {"enum": ["sdbu_v2", "sdrpp_raw_cs16"]},
     "log_level": {"enum": ["DEBUG", "INFO", "WARNING", "ERROR"]}
   },

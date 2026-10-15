@@ -383,7 +383,39 @@ class RingReader:
                 self.torn_retries_exhausted += 1
                 self.next_sequence += 1
                 self.dropped_blocks += 1
-            time.sleep(0.001)
+            # Windows rounds short sleeps to its timer quantum (often
+            # ~15.6 ms).  That creates audible holes in real-time UDP
+            # clients even though the producer has not dropped a block.
+            # Yield instead of requesting a millisecond sleep; the loop is
+            # bounded by the caller timeout and remains cooperative.
+            time.sleep(0)
+        return None
+
+    def read_latest(self, timeout: float = 1.0) -> IQBlock | None:
+        """Return the newest complete block without draining old history.
+
+        This is the appropriate operation for real-time displays.  A display
+        reader must not attempt to catch up every block when the producer is
+        running faster than the UI refresh rate: doing so can keep it behind
+        forever and starve the GUI event loop.  Skipped blocks are accounted
+        for in ``dropped_blocks`` just like an overrun observed by ``read``.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            latest = self.ring.latest_sequence
+            if latest != EMPTY:
+                if self.next_sequence > latest:
+                    time.sleep(0)
+                    continue
+                if self.next_sequence < latest:
+                    self.dropped_blocks += latest - self.next_sequence
+                self.next_sequence = latest
+                block = self.ring.read(latest)
+                if block is not None:
+                    self.next_sequence = latest + 1
+                    return block
+                self.torn_retries_exhausted += 1
+            time.sleep(0)
         return None
 
     def sync_latest(self) -> None:

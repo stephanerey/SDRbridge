@@ -5,6 +5,7 @@ import queue
 import socket
 import struct
 import threading
+import time
 
 from .model import Discontinuity, IQBlock, SampleFormat, TimeDomain, TimestampOrigin
 
@@ -13,6 +14,11 @@ MAGIC = b"SDBU"
 VERSION = 2
 HEADER_BYTES = 72
 DEFAULT_DATAGRAM_BYTES = 1200
+LOOPBACK_RAW_DATAGRAM_BYTES = 8192
+# Keep the prefill below the 64-slot ring capacity even when a native driver
+# returns short blocks (the ring would otherwise overrun before the first
+# packet is released).
+LOOPBACK_RAW_BUFFER_BLOCKS = 8
 
 FLAG_TIME_VALID = 1 << 0
 FLAG_HARDWARE_ORIGIN = 1 << 1
@@ -142,6 +148,7 @@ class UDPDestination:
         transport: str = "sdbu_v2",
         max_datagram_bytes: int = DEFAULT_DATAGRAM_BYTES,
         queue_blocks: int = 32,
+        raw_buffer_blocks: int = 0,
         multicast_interface: str | None = None,
         multicast_loopback: bool = False,
     ):
@@ -163,6 +170,13 @@ class UDPDestination:
         self.last_error: str | None = None
         self.last_center_frequency_hz: int | None = None
         self.last_sample_rate_sps: int | None = None
+        # SDR++ consumes the raw UDP stream continuously.  The source/ring
+        # side can deliver several blocks in a burst (especially on Windows),
+        # so keep a small jitter buffer and release blocks at their RF cadence.
+        self._raw_buffer_blocks = max(0, int(raw_buffer_blocks))
+        self._raw_next_deadline: float | None = None
+        self._raw_rate_sps: int | None = None
+        self._raw_prefill_started: float | None = None
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -203,6 +217,10 @@ class UDPDestination:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         host = self.destination[0]
         is_multicast = 224 <= int(host.split(".")[0]) <= 239 if host.count(".") == 3 else False
+        raw_pending = bytearray()
+        raw_pending_rate: int | None = None
+        raw_bytes_per_iq = SampleFormat.CS16.bytes_per_iq
+        raw_payload_limit = self.max_datagram_bytes - (self.max_datagram_bytes % raw_bytes_per_iq)
         if is_multicast:
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, int(self.multicast_loopback))
@@ -210,14 +228,77 @@ class UDPDestination:
                 sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(self.multicast_interface))
         try:
             while not self._stop.is_set() or not self._queue.empty():
+                if (self.transport == "sdrpp_raw_cs16" and self._raw_buffer_blocks
+                        and self._raw_next_deadline is None and not self._stop.is_set()):
+                    # Pre-fill before the first packet.  Without this, a
+                    # transient producer gap becomes an audible underrun in
+                    # SDR++ even though no UDP datagram was lost.
+                    if self._raw_prefill_started is None:
+                        self._raw_prefill_started = time.perf_counter()
+                    # A live source can produce exactly as fast as the
+                    # consumer, so waiting for a full N-block queue forever
+                    # would deadlock the destination. Start after a bounded
+                    # prefill window and let the queue absorb later bursts.
+                    prefill_elapsed = time.perf_counter() - self._raw_prefill_started
+                    if (self._queue.qsize() < self._raw_buffer_blocks
+                            and prefill_elapsed < 0.050):
+                        time.sleep(0)
+                        continue
                 try:
                     block = self._queue.get(timeout=0.05)
                 except queue.Empty:
+                    # Vider un reliquat est nécessaire si le producteur s'est
+                    # arrêté entre deux blocs, mais conserver l'échéancier
+                    # évite de transformer cette pause en nouvelle rafale au
+                    # prochain paquet. Les frontières de flux (débit,
+                    # reconfiguration, arrêt) sont traitées séparément.
+                    if self.transport == "sdrpp_raw_cs16" and raw_pending:
+                        try:
+                            sent = sock.sendto(bytes(raw_pending), self.destination)
+                            self.sent_packets += 1
+                            self.sent_bytes += sent
+                        except OSError as exc:
+                            self.socket_errors += 1
+                            self.last_error = str(exc)
+                        raw_pending.clear()
                     continue
                 try:
                     self.last_center_frequency_hz = block.center_frequency_hz
                     self.last_sample_rate_sps = block.sample_rate_sps
-                    packets = self.encoder.encode(block) if self.transport == "sdbu_v2" else self._raw_packets(block)
+                    if self.transport == "sdrpp_raw_cs16":
+                        if self._raw_rate_sps != block.sample_rate_sps:
+                            self._raw_next_deadline = None
+                            self._raw_rate_sps = block.sample_rate_sps
+                        if (raw_pending and (raw_pending_rate != block.sample_rate_sps
+                                or block.discontinuity is not Discontinuity.NONE)):
+                            # Never bridge a reconfiguration/epoch boundary
+                            # with a headerless raw stream.
+                            try:
+                                sent = sock.sendto(bytes(raw_pending), self.destination)
+                                self.sent_packets += 1
+                                self.sent_bytes += sent
+                            except OSError as exc:
+                                self.socket_errors += 1
+                                self.last_error = str(exc)
+                            raw_pending.clear()
+                        raw_pending_rate = block.sample_rate_sps
+                        if self._raw_next_deadline is None:
+                            self._raw_next_deadline = time.perf_counter()
+                        while True:
+                            remaining = self._raw_next_deadline - time.perf_counter()
+                            if remaining <= 0:
+                                break
+                            # Do not use sleep(1 ms): Windows rounds it to a
+                            # ~15.6 ms timer quantum and reintroduces holes.
+                            time.sleep(0)
+                    if self.transport == "sdbu_v2":
+                        packets = self.encoder.encode(block)
+                    else:
+                        raw_pending.extend(bytes(block.payload))
+                        packets = []
+                        while len(raw_pending) >= raw_payload_limit:
+                            packets.append(bytes(raw_pending[:raw_payload_limit]))
+                            del raw_pending[:raw_payload_limit]
                     for packet in packets:
                         try:
                             sent = sock.sendto(packet, self.destination)
@@ -226,11 +307,21 @@ class UDPDestination:
                         except OSError as exc:
                             self.socket_errors += 1
                             self.last_error = str(exc)
+                    if self.transport == "sdrpp_raw_cs16" and self._raw_next_deadline is not None:
+                        self._raw_next_deadline += block.sample_count / block.sample_rate_sps
                 except Exception as exc:
                     self.socket_errors += 1
                     self.last_error = str(exc)
                 finally:
                     self._queue.task_done()
+            if raw_pending:
+                try:
+                    sent = sock.sendto(bytes(raw_pending), self.destination)
+                    self.sent_packets += 1
+                    self.sent_bytes += sent
+                except OSError as exc:
+                    self.socket_errors += 1
+                    self.last_error = str(exc)
         finally:
             sock.close()
 
@@ -254,7 +345,21 @@ class UDPStreamer:
     def __init__(self, ring, destination: tuple[str, int], mtu: int = DEFAULT_DATAGRAM_BYTES, transport: str = "sdbu_v2"):
         from .ring import RingReader
         self.reader = RingReader(ring)
-        self.destination = UDPDestination(destination, wire_stream_id=1, max_datagram_bytes=mtu, transport=transport)
+        # SDR++'s raw source has no application-level MTU.  On loopback a
+        # larger datagram is safe and avoids thousands of tiny UDP wakeups per
+        # second at 2 MS/s.  Keep the conservative MTU for LAN/multicast,
+        # where IP fragmentation would be harmful.
+        if (transport == "sdrpp_raw_cs16" and mtu == DEFAULT_DATAGRAM_BYTES
+                and destination[0] in {"127.0.0.1", "localhost", "::1"}):
+            mtu = LOOPBACK_RAW_DATAGRAM_BYTES
+        self.destination = UDPDestination(
+            destination, wire_stream_id=1, max_datagram_bytes=mtu,
+            transport=transport,
+            raw_buffer_blocks=(LOOPBACK_RAW_BUFFER_BLOCKS
+                               if transport == "sdrpp_raw_cs16"
+                               and destination[0] in {"127.0.0.1", "localhost", "::1"}
+                               else 0),
+        )
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 

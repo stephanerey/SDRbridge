@@ -2,8 +2,11 @@ import json
 import socket
 import time
 import unittest
+from copy import deepcopy
 
 from sdr_bridge.bridge import SDRBridge
+from sdr_bridge.app import AppRuntime
+from sdr_bridge.config import DEFAULT_CONFIG
 from sdr_bridge.control import ControlServer
 from sdr_bridge.model import RadioConfig
 from sdr_bridge.ring import RingReader, SharedIQRing
@@ -26,8 +29,41 @@ class RingTests(unittest.TestCase):
         finally:
             ring.close(unlink=True)
 
+    def test_read_latest_skips_history_without_draining(self):
+        ring = SharedIQRing(8, 8)
+        try:
+            reader = RingReader(ring, start_at_latest=False)
+            payload = memoryview(bytes(range(32)))
+            for seq in range(6):
+                ring.write(seq, 100 + seq, 2, 8, payload)
+            block = reader.read_latest(0.1)
+            self.assertIsNotNone(block)
+            self.assertEqual(block.sequence, 5)
+            self.assertEqual(reader.dropped_blocks, 5)
+            self.assertIsNone(reader.read_latest(0.001))
+        finally:
+            ring.close(unlink=True)
+
 
 class BridgeTests(unittest.TestCase):
+    def test_runtime_supports_multiple_udp_destinations(self):
+        config = deepcopy(DEFAULT_CONFIG)
+        config["network"] = deepcopy(DEFAULT_CONFIG["network"])
+        config["network"]["legacy_control_port"] = 0
+        config["network"]["control_port"] = 0
+        config["radio"] = deepcopy(DEFAULT_CONFIG["radio"])
+        config["source"] = "simulated"
+        runtime = AppRuntime(config)
+        try:
+            runtime.start(start_rx=True)
+            runtime.add_udp_destination("127.0.0.1:7356", "sdrpp_raw_cs16")
+            runtime.add_udp_destination("127.0.0.1:7357", "sdrpp_raw_cs16")
+            self.assertEqual([item["destination"] for item in runtime.udp_destinations_snapshot()], ["127.0.0.1:7356", "127.0.0.1:7357"])
+            runtime.remove_udp_destination("127.0.0.1:7356")
+            self.assertEqual([item["destination"] for item in runtime.udp_destinations_snapshot()], ["127.0.0.1:7357"])
+        finally:
+            runtime.close()
+
     def setUp(self):
         self.bridge = SDRBridge(SimulatedSource(block_samples=2048), RadioConfig(), block_samples=2048, slots=16)
         self.bridge.start()

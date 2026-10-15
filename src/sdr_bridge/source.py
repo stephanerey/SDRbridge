@@ -99,7 +99,7 @@ class SimulatedSource(IQSource):
 
     @property
     def name(self) -> str:
-        return "Source simulée déterministe"
+        return "Deterministic simulated source"
 
     def enumerate(self) -> list[DeviceDescriptor]:
         return [DeviceDescriptor(self.DEVICE_ID, "simulated", self.name, serial="seed-1")]

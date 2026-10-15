@@ -8,7 +8,15 @@ import threading
 
 import numpy as np
 
-from .model import DeviceCapabilities, DeviceDescriptor, RadioConfig, SampleFormat, TimeDomain, TimestampOrigin
+from .model import (
+    DeviceCapabilities,
+    DeviceDescriptor,
+    Discontinuity,
+    RadioConfig,
+    SampleFormat,
+    TimeDomain,
+    TimestampOrigin,
+)
 from .source import BlockCallback, ErrorCallback, IQSource, SourceChunk
 
 
@@ -52,7 +60,7 @@ class NativeSDRplaySource(IQSource):
         raise RuntimeError("sdrplay_bridge.dll not found; run native/build_native.ps1")
 
     def enumerate(self) -> list[DeviceDescriptor]:
-        return [DeviceDescriptor(self.DEVICE_ID, "native_sdrplay", "Premier récepteur SDRplay disponible", serial=None)]
+        return [DeviceDescriptor(self.DEVICE_ID, "native_sdrplay", "First available SDRplay receiver", serial=None)]
 
     def capabilities(self, device_id: str) -> DeviceCapabilities:
         if device_id != self.DEVICE_ID:
@@ -70,10 +78,16 @@ class NativeSDRplaySource(IQSource):
             "lna_state": (0.0, 27.0),
             "if_type": (0.0, 3.0),
         }
+        # RSPdx exposes several ADC rates.  The previous implementation only
+        # advertised the 2 MS/s default, which made the Sampling combo look
+        # broken even though the native API accepts the higher RSPdx modes.
+        # Keep this list limited to the documented RSPdx operating points;
+        # the API remains the final authority when a mode is opened.
+        sample_rates = (2_000_000, 6_000_000, 8_000_000, 10_000_000)
         return DeviceCapabilities(
             device_id,
             ((1_000, 2_000_000_001),),
-            (2_000_000,),
+            sample_rates,
             (200_000, 300_000, 600_000, 1_536_000, 5_000_000, 6_000_000, 7_000_000, 8_000_000),
             antennas,
             gains,
@@ -225,6 +239,41 @@ class NativeSDRplaySource(IQSource):
         sample_count = ctypes.c_uint32(0)
         first_sample = ctypes.c_uint64(0)
         pointer = buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_int16))
+        # La file native SDRplay renvoie généralement des paquets courts
+        # (environ 1008 IQ à 2 MS/s). Les propager tels quels ferait plusieurs
+        # milliers d'écritures ring/UDP par seconde et surcharge le dispatcher
+        # Python. On regroupe donc les retours en blocs de la taille du ring
+        # logique, tout en conservant l'index d'échantillon pour détecter un
+        # trou matériel.
+        aggregate_target = 4096
+        pending = bytearray()
+        pending_first_sample = 0
+        pending_sample_count = 0
+
+        def enqueue_chunk(payload: bytes, first: int, count: int,
+                          discontinuity=Discontinuity.NONE,
+                          lost_samples: int | None = 0) -> None:
+            if self._callback:
+                self._callback(SourceChunk(
+                    payload=memoryview(payload),
+                    sample_count=count,
+                    first_sample_index=first,
+                    timestamp_ns=0,
+                    time_domain=TimeDomain.DEVICE_RELATIVE,
+                    timestamp_origin=TimestampOrigin.HARDWARE,
+                    discontinuity=discontinuity,
+                    lost_samples=lost_samples,
+                ))
+
+        def emit_pending(discontinuity=Discontinuity.NONE, lost_samples=0) -> None:
+            nonlocal pending, pending_first_sample, pending_sample_count
+            if pending_sample_count <= 0:
+                return
+            enqueue_chunk(bytes(pending), pending_first_sample, pending_sample_count,
+                          discontinuity, lost_samples)
+            pending.clear()
+            pending_sample_count = 0
+
         while not self._reader_stop.is_set():
             try:
                 result = self._dll.sdb_read_iq(pointer, capacity,
@@ -239,15 +288,29 @@ class NativeSDRplaySource(IQSource):
                 count = int(sample_count.value)
                 if count <= 0 or not self._callback:
                     continue
-                payload = memoryview(buffer[:count * 2]).cast("B")
-                self._callback(SourceChunk(
-                    payload=payload,
-                    sample_count=count,
-                    first_sample_index=int(first_sample.value),
-                    timestamp_ns=0,
-                    time_domain=TimeDomain.DEVICE_RELATIVE,
-                    timestamp_origin=TimestampOrigin.HARDWARE,
-                ))
+                first = int(first_sample.value)
+                if pending_sample_count:
+                    expected = pending_first_sample + pending_sample_count
+                    if first != expected:
+                        lost = first - expected
+                        emit_pending(
+                            Discontinuity.SOURCE_LOSS,
+                            lost if lost > 0 else None,
+                        )
+                if not pending_sample_count:
+                    pending_first_sample = first
+                # Le buffer C est réutilisé au prochain appel : copier ici est
+                # nécessaire, mais une seule copie par paquet natif au lieu
+                # d'une copie/écriture ring par paquet.
+                pending.extend(memoryview(buffer[:count * 2]).cast("B"))
+                pending_sample_count += count
+                while pending_sample_count >= aggregate_target:
+                    chunk_bytes = aggregate_target * SampleFormat.CS16.bytes_per_iq
+                    enqueue_chunk(bytes(pending[:chunk_bytes]), pending_first_sample,
+                                  aggregate_target)
+                    del pending[:chunk_bytes]
+                    pending_first_sample += aggregate_target
+                    pending_sample_count -= aggregate_target
             except BaseException as exc:
                 self._error = exc
                 if self._error_callback:

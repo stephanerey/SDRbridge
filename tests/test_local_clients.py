@@ -14,7 +14,7 @@ class LocalClientCompatibilityTests(unittest.TestCase):
     def setUp(self):
         self.bridge = SDRBridge(SimulatedSource(), block_samples=4096)
         self.bridge.start()
-        self.control = ControlServer(self.bridge, port=47631)
+        self.control = ControlServer(self.bridge, port=0)
         self.control.start()
 
     def tearDown(self):
@@ -24,6 +24,7 @@ class LocalClientCompatibilityTests(unittest.TestCase):
         path = Path(__file__).resolve().parents[1] / "clients" / "antrack" / "SoapySDR.py"
         spec = importlib.util.spec_from_file_location("sdrbridge_test_soapy", path)
         module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        module.CONTROL_HOST, module.CONTROL_PORT = self.control.address
         device = module.Device()
         try:
             device.setSampleRate(module.SOAPY_SDR_RX, 0, 96_000)

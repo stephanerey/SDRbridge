@@ -37,6 +37,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "auto_connect": False,
     "auto_start": False,
     "udp_destination": None,
+    "udp_destinations": [],
     "udp_transport": "sdbu_v2",
     "log_level": "INFO",
 }
