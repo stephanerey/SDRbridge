@@ -33,13 +33,13 @@ Source: "{#ReleaseDir}\config.native-sdrpp.json"; DestDir: "{app}"; Flags: ignor
 Source: "{#ReleaseDir}\start-sdrbridge.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\SDRbridge"; Filename: "{app}\SDR_Bridge\{#MyAppExeName}"
+Name: "{group}\SDRbridge"; Filename: "{app}\SDR_Bridge\{#MyAppExeName}"; Parameters: "--config ""{app}\config.soapy-sdrpp.json"""; WorkingDir: "{app}"
 Name: "{group}\Client natif SDRbridge"; Filename: "{app}\SDR_Bridge_Native_Client\SDR_Bridge_Native_Client.exe"
 Name: "{group}\Guide des clients"; Filename: "{app}\Documentation\CLIENT_SETUP.md"
-Name: "{autodesktop}\SDRbridge"; Filename: "{app}\SDR_Bridge\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\SDRbridge"; Filename: "{app}\SDR_Bridge\{#MyAppExeName}"; Parameters: "--config ""{app}\config.soapy-sdrpp.json"""; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Créer un raccourci sur le Bureau"; GroupDescription: "Raccourcis :"
 
 [Run]
-Filename: "{app}\SDR_Bridge\{#MyAppExeName}"; Description: "Lancer SDRbridge"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\SDR_Bridge\{#MyAppExeName}"; Parameters: "--config ""{app}\config.soapy-sdrpp.json"""; WorkingDir: "{app}"; Description: "Lancer SDRbridge"; Flags: nowait postinstall skipifsilent

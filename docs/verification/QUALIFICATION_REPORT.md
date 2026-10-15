@@ -27,7 +27,7 @@ Le module `sdrPlaySupport.dll` installé avec PothosSDR date de 2021 et annonce 
 ## Binaire livré localement
 
 - installateur : `release-v0.4/installer/SDRbridge_Setup_0.4.0.exe` ;
-- SHA-256 installateur : `952007C581C92062343E66E34AC5AE0FEA7F5F0E1B0D3ABBB662D9E01DA5455F` ;
+- SHA-256 installateur : `D8D2121809D0F1F19BD60EDFC1781CC35AC84EFEEB2562ED1D3597D55EFA3BC3` ;
 - exécutable portable : `release-v0.4/SDR_Bridge/SDR_Bridge.exe` ;
 - SHA-256 exécutable : `27627269C60A22EEFB52AE48C5A3D50203F00F410543554CC573A211DB3D5D31`.
 

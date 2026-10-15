@@ -18,7 +18,7 @@
 - Deux processus simultanés sont verts avec le RSPdx natif (≈1,910 MS/s) et le RSP1 Soapy (≈1,934 MS/s), zéro drop/erreur sur 10 s.
 - Le paquet portable énumère les deux séries physiques et termine proprement en mode CLI sans console.
 - L'installateur v0.4.0 a été installé dans un dossier isolé, son exécutable chargé, les connecteurs SDR++/HDSDR vérifiés, puis il a été désinstallé sans reste.
-- SHA-256 installateur : `952007C581C92062343E66E34AC5AE0FEA7F5F0E1B0D3ABBB662D9E01DA5455F`.
+- SHA-256 installateur : `D8D2121809D0F1F19BD60EDFC1781CC35AC84EFEEB2562ED1D3597D55EFA3BC3`.
 
 ## Réserves explicites
 

@@ -1,6 +1,6 @@
 # Connexion des clients à SDRbridge 0.4
 
-Le lancement par défaut est simulé et n’ouvre aucun matériel. Depuis `E:\PLDesign\SDRbridge` :
+Un lancement direct de `SDR_Bridge.exe` sans argument est simulé et n’ouvre aucun matériel. Le raccourci installé **SDRbridge** charge en revanche `config.soapy-sdrpp.json` afin d’afficher les SDR détectés, sans démarrer automatiquement la réception. Depuis `E:\PLDesign\SDRbridge`, la simulation explicite reste disponible avec :
 
 ```powershell
 .\.venv\Scripts\python.exe -m sdr_bridge --source simulated --headless --auto-start

@@ -11,6 +11,7 @@
 - smoke RX matériel reproductible, séparé puis simultané ;
 - validation du RSPdx natif et du clone RSP1 Soapy en deux processus simultanés ;
 - version de l’application et du packaging portée à 0.4.0.
+- raccourcis installés configurés pour ouvrir directement le catalogue Soapy, RX arrêté.
 
 ## 0.3.0 — publiée
 

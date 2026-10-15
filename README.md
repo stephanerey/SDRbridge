@@ -110,7 +110,7 @@ Pour le RSPdx avec la configuration fournie :
 .\release-v0.4\SDR_Bridge\SDR_Bridge.exe --config .\config.soapy-sdrpp.json
 ```
 
-La source matérielle n’est jamais sélectionnée silencieusement : le mode simulé reste le choix sûr pour le premier lancement.
+Le raccourci créé par l’installateur charge `config.soapy-sdrpp.json` : la liste **Source** contient donc les SDR détectés par Soapy. La réception reste arrêtée jusqu’au clic sur **Start**. Un lancement direct de `SDR_Bridge.exe` sans argument conserve la source simulée comme mode sûr.
 
 ### Journaux et diagnostic d’arrêt
 
