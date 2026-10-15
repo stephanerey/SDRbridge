@@ -9,6 +9,7 @@ import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from .bridge import SDRBridge, StaleConfigError
+from . import __version__
 from .dsp import payload_to_complex
 from .frequency_control import FrequencyControlWidget
 from .model import LifecycleState
@@ -139,7 +140,8 @@ class BridgeWindow(QtWidgets.QMainWindow):
         self._live_apply_timer.setInterval(180)
         self._live_apply_timer.timeout.connect(self._apply_config)
         self.configApplied.connect(self._config_apply_finished)
-        self.setWindowTitle("SDRbridge 0.3 — RX")
+        instance_name = getattr(runtime, "instance_name", "default") if runtime is not None else "default"
+        self.setWindowTitle(f"SDRbridge {__version__} — RX — {instance_name}")
         self.setStyleSheet("""
             QWidget { color: #202124; background-color: #f4f5f7; font-size: 10pt; }
             QGroupBox { border: 1px solid #b8bec6; border-radius: 4px; margin-top: 8px; padding-top: 8px; }
@@ -426,8 +428,10 @@ class BridgeWindow(QtWidgets.QMainWindow):
             self.device_combo.blockSignals(True)
             self.device_combo.clear()
             for device in devices:
-                label = device.get("label") or device.get("device_id")
-                self.device_combo.addItem(f"{device.get('backend', '')}: {label}", device.get("device_id"))
+                label = device.get("model") or device.get("label") or device.get("device_id")
+                serial = device.get("serial")
+                suffix = f" — S/N {serial}" if serial and str(serial) not in str(label) else ""
+                self.device_combo.addItem(f"{device.get('backend', '')}: {label}{suffix}", device.get("device_id"))
             if current:
                 index = self.device_combo.findData(current)
                 if index >= 0:
@@ -528,6 +532,7 @@ class BridgeWindow(QtWidgets.QMainWindow):
         try:
             self.bridge.select_device(str(device_id))
             self._show_error("")
+            self._refresh_devices()
         except Exception as exc:
             self._show_error(f"Device rejected — {exc}")
         self.refresh()
@@ -854,8 +859,9 @@ class BridgeWindow(QtWidgets.QMainWindow):
         else:
             self.capture_status.setText("Recorder stopped")
             self.capture_button.setText("Start capture")
-        diagnostics = {key: status[key] for key in ("state", "source", "source_id", "epoch", "blocks_received", "blocks_written", "source_queue_drops", "source_queue_capacity", "source_queue_high_water", "source_errors", "last_error", "pipelines")}
+        diagnostics = {key: status[key] for key in ("state", "source", "source_id", "epoch", "blocks_received", "blocks_written", "source_queue_drops", "source_queue_capacity", "source_queue_high_water", "source_errors", "dispatch_processing_average_ms", "dispatch_processing_max_ms", "dispatch_slow_blocks", "last_error", "pipelines")}
         diagnostics["capabilities"] = self._capabilities
+        diagnostics["log_file"] = str(self.runtime.log_path) if self.runtime is not None and getattr(self.runtime, "log_path", None) else None
         import json
         self.diagnostics.setPlainText(json.dumps(diagnostics, ensure_ascii=False, indent=2))
 

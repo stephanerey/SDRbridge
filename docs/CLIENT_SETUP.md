@@ -1,4 +1,4 @@
-# Connexion des clients à SDRbridge 0.3
+# Connexion des clients à SDRbridge 0.4
 
 Le lancement par défaut est simulé et n’ouvre aucun matériel. Depuis `E:\PLDesign\SDRbridge` :
 
@@ -16,14 +16,14 @@ La commande ci-dessus utilise volontairement la source simulée : l’interface 
 
 Dans SDR++, ajouter la source **Network** et choisir l’entrée UDP locale sur le port `7355`, le taux affiché comme **Sampling** dans SDRbridge (par défaut `2000000 S/s`), le format IQ signé 16 bits little-endian (`Int16`) et la fréquence centrale effective affichée par SDRbridge. Le backend RSPdx natif expose les modes `2`, `6`, `8` et `10 MS/s`; après un changement de Sampling, reporter exactement le nouveau taux dans SDR++. Le transport opérateur `sdrpp_raw_cs16` est volontairement sans en-tête : la fréquence centrale et le taux ne sont donc pas transmis à SDR++ et doivent être renseignés manuellement.
 
-Une source native **SDRbridge SDBU v2** est aussi installée pour SDR++ 1.3.0 sous `E:\Radio\sdrpp_windows_x64_1.3.0\sdrpp_windows_x64`. Elle écoute par défaut `127.0.0.1:7355`, valide l'en-tête SDBU v2 de 72 octets, accepte CS16/CF32 et applique au DSP de SDR++ le taux et la fréquence centrale annoncés. Pour ce chemin, utiliser `--udp-transport sdbu_v2`; `config.native-sdrpp.json` est préparé ainsi pour le prochain démarrage. La source reste en lecture seule : une syntonisation dans SDR++ ne pilote jamais le RSPdx. Le module, la DLL x64 précompilée, ses scripts de build/retour arrière et ses preuves sont versionnés dans `clients/sdrpp_sdbu_source`.
+Une source native **SDRbridge SDBU v2** est aussi installée pour SDR++ 1.3.0 sous `E:\Radio\sdrpp_windows_x64_1.3.0\sdrpp_windows_x64`. Elle écoute par défaut `127.0.0.1:7355`, valide l'en-tête SDBU v2 de 72 octets, accepte CS16/CF32 et applique au DSP de SDR++ le taux et la fréquence centrale annoncés. Pour ce chemin, utiliser `--udp-transport sdbu_v2`; `config.soapy-sdrpp.json` prépare l’énumération Soapy et la destination SDBU. La source reste en lecture seule : une syntonisation dans SDR++ ne pilote jamais le SDR. Le module, la DLL x64 précompilée, ses scripts de build/retour arrière et ses preuves sont versionnés dans `clients/sdrpp_sdbu_source`.
 
 Le champ **Bandwidth** est indépendant du Sampling : il sélectionne le filtre RF SDRplay. SDRbridge ne propose que les largeurs compatibles avec le Sampling courant (par exemple, à `2 MS/s`, les filtres 5–8 MHz sont masqués). Changer Bandwidth filtre le spectre sans changer le débit IQ ; changer Sampling reconfigure le flux maître.
 
 Plusieurs clients UDP peuvent être servis simultanément. Depuis l’onglet **Outputs & Clients**, ajouter par exemple `127.0.0.1:7356` avec le transport **SDR++ raw CS16** ; conserver la première destination sur `7355`, puis configurer chaque instance SDR++ sur son port respectif. En ligne de commande, répéter `--udp` :
 
 ```powershell
-.\release-v0.3\SDR_Bridge\SDR_Bridge.exe --config .\config.native-sdrpp.json `
+.\release-v0.4\SDR_Bridge\SDR_Bridge.exe --config .\config.soapy-sdrpp.json `
   --udp 127.0.0.1:7355 --udp 127.0.0.1:7356 `
   --udp-transport sdrpp_raw_cs16
 ```
@@ -34,10 +34,30 @@ Important : la destination `--udp ... --udp-transport sdrpp_raw_cs16` lit actuel
 
 Pour une destination loopback (`127.0.0.1`), SDRbridge regroupe automatiquement le raw CS16 en datagrammes de 8 Ko afin de limiter la charge UDP à 2 MS/s. Les destinations réseau utilisent le budget conservateur de 1 200 octets pour éviter la fragmentation IP.
 
-Le client natif de diagnostic est `release-v0.3\SDR_Bridge_Native_Client\SDR_Bridge_Native_Client.exe` ou `sdr-bridge-native-client` depuis l’environnement Python. Le protocole SDBU v2 émet un en-tête de 72 octets et reste distinct du flux raw SDR++.
+Le client natif de diagnostic est `release-v0.4\SDR_Bridge_Native_Client\SDR_Bridge_Native_Client.exe` ou `sdr-bridge-native-client` depuis l’environnement Python. Le protocole SDBU v2 émet un en-tête de 72 octets et reste distinct du flux raw SDR++.
 
-Les connecteurs livrés sont sous `release-v0.3\Connectors\HDSDR` et `Connectors\ANTRACK`. Leur copie dans une installation HDSDR ou ANTRACK est une étape manuelle de recette, non exécutée par le build.
+Les connecteurs livrés sont sous `release-v0.4\Connectors\SDR++`, `Connectors\HDSDR` et `Connectors\ANTRACK`. Les dossiers SDR++ et HDSDR contiennent chacun la DLL dans `bin` et les scripts réversibles `scripts\install.ps1` / `scripts\uninstall.ps1`. Leur installation dans un logiciel tiers reste une action explicite de l’utilisateur et n’est jamais exécutée par le build de SDRbridge.
 
-HDSDR 2.81a, ANTRACK 2.1.0 et SDR++ 1.2.1 doivent être testés sur les installations réellement présentes. Les tests locaux vérifient l’ExtIO Win32, le shim ANTRACK et le format raw ; ils ne constituent pas une qualification de ces logiciels tiers.
+## Deux instances pour deux SDR
+
+Chaque processus garde une seule source active. Pour le matériel actuellement qualifié, lancer le RSPdx par le backend natif et le RSP1 par Soapy :
+
+```powershell
+.\start-sdrbridge.ps1 -Instance rspdx -Config .\config.native-sdrpp.json
+.\start-sdrbridge.ps1 -Instance rsp1 -PortOffset 100 `
+  -Config .\config.soapy-sdrpp.json `
+  -DeviceId 'soapy:sdrplay:0000000001'
+```
+
+Le décalage `100` transforme les ports contrôle `47631`/`47632` en `47731`/`47732`, et la destination SDBU `7355` en `7455`. Configurer la seconde source SDR++ sur `7455`. Pour lancer une seconde copie de HDSDR vers le RSP1, définir son port avant le démarrage :
+
+```powershell
+$env:SDRBRIDGE_CONTROL_PORT = '47731'
+Start-Process 'C:\Program Files (x86)\HDSDR\HDSDR.exe'
+```
+
+Les journaux sont indépendants sous `%LOCALAPPDATA%\SDRbridge\logs` pour l’instance `default`, puis `%LOCALAPPDATA%\SDRbridge\instances\<nom>\logs` pour les instances nommées. Deux backends SoapySDRPlay simultanés ne sont pas qualifiés avec le module PothosSDR 2021, compilé pour l’API 3.07 alors que l’API SDRplay installée est 3.15.
+
+HDSDR 2.81a, ANTRACK 2.1.0 et SDR++ 1.3.0 doivent être testés sur les installations réellement présentes. Les tests locaux vérifient l’ExtIO Win32, le shim ANTRACK, la source SDR++ SDBU v2 et le format raw ; ils ne constituent pas à eux seuls une qualification complète de ces logiciels tiers.
 
 QMAP/Linrad TIMF2 reste différé. WSJT-X doit passer par une chaîne audio aval, pas par un flux IQ direct.

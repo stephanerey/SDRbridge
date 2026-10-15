@@ -2,7 +2,7 @@
 
 SDRbridge est un répartiteur RX pour Windows : il ouvre une seule source SDR, publie son flux IQ et permet à plusieurs applications de réception de l’utiliser simultanément sans leur donner le contrôle du matériel.
 
-Le projet prend actuellement en charge une source simulée, le replay SigMF et le backend natif SDRplay/RSPdx. Un backend générique SoapySDR est implémenté pour étendre la compatibilité à d’autres récepteurs, mais sa couche d’exécution n’est pas encore intégrée au paquet Windows ni qualifiée avec chaque matériel.
+La version 0.4 en préparation prend en charge une source simulée, le replay SigMF, le backend natif SDRplay et un backend générique SoapySDR. Soapy énumère les récepteurs connectés par modèle et numéro de série ; les périphériques audio exposés par PothosSDR sont exclus de la liste.
 
 ![Deux instances de SDR++, HDSDR et SDRbridge partageant le même flux RX](docs/assets/sdrbridge-three-clients.png)
 
@@ -35,12 +35,12 @@ Les applications clientes sont en lecture seule. Changer une fréquence dans SDR
 
 | Récepteur | Chemin prévu | État vérifié |
 |---|---|---|
-| SDRplay RSPdx | backend natif SDRplay | flux réel observé |
-| Autres modèles SDRplay | backend natif ou SoapySDR selon le modèle | à qualifier matériellement |
+| SDRplay RSPdx | backend natif SDRplay ou SoapySDR | RX réel vérifié à 2 MS/s |
+| Clone RSP1 / MSI Panadapter | SoapySDRPlay | RX réel vérifié seul et simultanément avec le RSPdx natif |
 | RTL2832 / RTL-SDR | backend SoapySDR avec `SoapyRTLSDR` | implémenté dans le code, non testé avec une clé réelle |
 | Airspy, HackRF, LimeSDR, UHD, etc. | module SoapySDR correspondant | compatibilité potentielle, non qualifiée |
 
-Une clé RTL2832 n’est donc **pas encore plug-and-play avec le `Setup.exe` actuel**. Elle nécessite au minimum le pilote WinUSB adapté, un runtime SoapySDR x64 avec le module `SoapyRTLSDR`, puis une distribution SDRbridge reconstruite avec la couche Python Soapy compatible. Le lancement se fait alors avec `--source soapy` et le périphérique doit apparaître dans la liste de la page **Radio**.
+Une clé RTL2832 n’est donc **pas encore qualifiée avec SDRbridge**. Elle nécessite au minimum le pilote WinUSB adapté et un runtime SoapySDR x64 avec le module `SoapyRTLSDR`. La couche d’exécution Soapy est intégrée au paquet v0.4 ; le périphérique doit ensuite apparaître dans la liste de la page **Radio**.
 
 Sur la machine de développement, PothosSDR expose bien la factory `rtlsdr`, mais aucune clé RTL2832 n’était connectée pendant cette vérification. Cette présence logicielle ne constitue pas une preuve de réception matérielle.
 
@@ -48,16 +48,16 @@ Sur la machine de développement, PothosSDR expose bien la factory `rtlsdr`, mai
 
 ### Installation simple pour un utilisateur final
 
-Le fichier à distribuer est **`SDRbridge_Setup_0.3.0.exe`**. Il contient l’application et ses dépendances intégrées : l’utilisateur le lance, suit l’assistant, puis démarre SDRbridge depuis le menu Démarrer ou le raccourci du Bureau. Il n’a besoin ni de Python, ni de Git, ni de Visual Studio. Les pilotes matériels et le runtime SoapySDR générique restent des prérequis externes lorsqu’ils sont utilisés.
+La v0.3 reste la version publiée. Le prochain fichier à distribuer sera **`SDRbridge_Setup_0.4.0.exe`**. Il contient l’application et ses dépendances Python : l’utilisateur le lance, suit l’assistant, puis démarre SDRbridge depuis le menu Démarrer ou le raccourci du Bureau. Il n’a besoin ni de Python, ni de Git, ni de Visual Studio. Les pilotes matériels, et PothosSDR pour le backend Soapy, restent des prérequis externes.
 
 **`SDR_Bridge.exe` ne doit pas être copié seul.** Le build actuel est une application portable « en dossier » : l’exécutable dépend des DLL et du répertoire `_internal` placés à côté de lui. Deux distributions sont donc possibles :
 
-- recommandée : le fichier unique `SDRbridge_Setup_0.3.0.exe` ;
+- recommandée : le fichier unique `SDRbridge_Setup_0.4.0.exe` ;
 - portable : une archive ZIP contenant le dossier `SDR_Bridge` complet, à extraire sans déplacer l’exécutable hors de ce dossier.
 
 Pour utiliser un RSPdx, le pilote et l’API SDRplay officiels doivent aussi être installés sur le PC. Ils ne sont pas remplacés par SDRbridge. Les connecteurs SDR++ et HDSDR s’installent ensuite avec les procédures dédiées plus bas.
 
-> Le dépôt Git versionne actuellement les sources et les DLL clientes, pas le paquet principal généré `release-v0.3`. Aucune release binaire n’est encore publiée sur GitHub : le mainteneur doit construire puis joindre le `Setup.exe` à une release avant de diriger les utilisateurs non techniques vers la page Releases.
+> Le dépôt Git versionne les sources et les DLL clientes, pas le paquet principal généré `release-v0.4`. Le paquet v0.4 doit être construit et validé avant d’être joint à une nouvelle release GitHub.
 
 ### Construire la distribution depuis les sources
 
@@ -87,30 +87,57 @@ py -3.12 -m venv .venv
 .\packaging\build_exe.ps1
 ```
 
-Le script compile les composants natifs x64/Win32, construit l’application et place le résultat dans `release-v0.3` :
+Le script lit la version dans `pyproject.toml`, compile les composants natifs x64/Win32 et place le résultat dans `release-v0.4` :
 
-- `release-v0.3\SDR_Bridge\SDR_Bridge.exe` : application portable ;
-- `release-v0.3\SDR_Bridge_Client` et `SDR_Bridge_Native_Client` : clients de diagnostic ;
-- `release-v0.3\Connectors` : connecteurs HDSDR et ANTRACK ;
-- `release-v0.3\installer\SDRbridge_Setup_0.3.0.exe` : installateur créé si Inno Setup 6 est présent.
+- `release-v0.4\SDR_Bridge\SDR_Bridge.exe` : application portable ;
+- `release-v0.4\SDR_Bridge_Client` et `SDR_Bridge_Native_Client` : clients de diagnostic ;
+- `release-v0.4\Connectors` : connecteurs SDR++, HDSDR et ANTRACK, avec leurs scripts d’installation ;
+- `release-v0.4\installer\SDRbridge_Setup_0.4.0.exe` : installateur créé si Inno Setup 6 est présent.
 
-Pour une installation classique, lancer `SDRbridge_Setup_0.3.0.exe`. L’application est installée dans le profil utilisateur (`%LOCALAPPDATA%\Programs\SDRbridge`) et ne demande pas de droits administrateur. Sans Inno Setup, copier ou compresser **tout** le dossier `release-v0.3\SDR_Bridge` pour constituer la version portable.
+Pour une installation classique, lancer `SDRbridge_Setup_0.4.0.exe`. L’application est installée dans le profil utilisateur (`%LOCALAPPDATA%\Programs\SDRbridge`) et ne demande pas de droits administrateur. Sans Inno Setup, copier ou compresser **tout** le dossier `release-v0.4\SDR_Bridge` pour constituer la version portable.
 
 #### 4. Premier démarrage
 
 Tester d’abord l’application sans matériel :
 
 ```powershell
-.\release-v0.3\SDR_Bridge\SDR_Bridge.exe --source simulated
+.\release-v0.4\SDR_Bridge\SDR_Bridge.exe --source simulated
 ```
 
 Pour le RSPdx avec la configuration fournie :
 
 ```powershell
-.\release-v0.3\SDR_Bridge\SDR_Bridge.exe --config .\config.native-sdrpp.json
+.\release-v0.4\SDR_Bridge\SDR_Bridge.exe --config .\config.soapy-sdrpp.json
 ```
 
 La source matérielle n’est jamais sélectionnée silencieusement : le mode simulé reste le choix sûr pour le premier lancement.
+
+### Journaux et diagnostic d’arrêt
+
+SDRbridge écrit automatiquement des journaux JSON rotatifs dans :
+
+```text
+%LOCALAPPDATA%\SDRbridge\logs\sdrbridge.log
+```
+
+Les cinq archives précédentes sont conservées, avec une taille maximale de 5 Mio par fichier. Chaque exécution possède un `run_id` commun au journal et au contrôle natif. Les démarrages, arrêts, erreurs de source, pertes de file et exceptions Python non interceptées y sont enregistrés sans données IQ ni jeton de session.
+
+Les fautes natives que Python peut intercepter sont écrites séparément dans `sdrbridge-fault.log`. Le chemin du journal courant apparaît aussi dans l’onglet **Diagnostics**. Pour une exécution de développement isolée, `--log-dir PATH` permet de choisir un autre dossier.
+
+### Plusieurs instances et plusieurs SDR
+
+La v0.4 conserve une source active par processus. Plusieurs processus peuvent fonctionner simultanément grâce à un nom d’instance, des ports décalés, des rings distincts et des journaux séparés. Sur la machine de référence, la combinaison vérifiée est : RSPdx par le backend natif et RSP1 par Soapy.
+
+```powershell
+.\start-sdrbridge.ps1 -Instance rspdx -Config .\config.native-sdrpp.json
+.\start-sdrbridge.ps1 -Instance rsp1 -PortOffset 100 `
+  -Config .\config.soapy-sdrpp.json `
+  -DeviceId 'soapy:sdrplay:0000000001'
+```
+
+La première instance utilise les ports `47631`/`47632` et UDP `7355`. La seconde utilise `47731`/`47732` et UDP `7455`. Ses journaux se trouvent sous `%LOCALAPPDATA%\SDRbridge\instances\rsp1\logs`.
+
+Avec le module SoapySDRPlay fourni par PothosSDR 2021, deux processus utilisant tous les deux Soapy ne sont pas qualifiés : le second RSP peut recevoir très en dessous de 2 MS/s. Le mode mixte natif + Soapy a tenu les deux flux simultanément sans perte pendant le smoke matériel. Cette réserve devra être réévaluée avec un module SoapySDRPlay construit pour l’API SDRplay 3.15.
 
 ## Installer la source SDR++
 
@@ -185,7 +212,7 @@ Le lancement matériel est explicite :
 .\run_bridge.ps1 -Source native
 ```
 
-Le paquet portable local, lorsqu’il a été construit, se lance avec `start-sdrbridge.ps1` et `config.native-sdrpp.json`.
+Le paquet portable local, lorsqu’il a été construit, se lance avec `start-sdrbridge.ps1`. Le script utilise `config.soapy-sdrpp.json` par défaut et accepte `-Instance`, `-PortOffset`, `-Config` et `-DeviceId`.
 
 ## Vérifier
 
@@ -193,7 +220,7 @@ Le paquet portable local, lorsqu’il a été construit, se lance avec `start-sd
 .\run_tests.ps1
 ```
 
-État vérifié au 15 octobre 2026 : 39 tests applicatifs passent, les DLL SDR++ x64 et ExtIO Win32 se compilent, et les trois clients illustrés ci-dessus ont reçu le flux réel. La recette d’endurance intégrée reste ouverte après des pertes observées lors d’une suspension Windows tardive ; le projet ne revendique donc pas encore une qualification de performance complète.
+État vérifié au 15 octobre 2026 : 48 tests applicatifs passent. Le RSPdx et le clone RSP1 sont énumérés par Soapy avec leur série ; chacun reçoit seul à environ 1,92 MS/s, et deux instances mixtes native + Soapy reçoivent simultanément sans perte sur le smoke de 10 secondes. La recette d’endurance intégrée reste ouverte : le projet ne revendique donc pas encore une qualification de performance complète.
 
 ## Documentation
 

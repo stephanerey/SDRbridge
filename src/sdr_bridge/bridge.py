@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import logging
 import queue
 import threading
 import time
@@ -19,6 +20,9 @@ from .profiles import PipelinePool, ProfileRegistry
 from .dsp import design_resampler_filter
 from .ring import RingReader, SharedIQRing
 from .source import IQSource, SourceChunk
+
+
+logger = logging.getLogger(__name__)
 
 
 class StaleConfigError(RuntimeError):
@@ -46,6 +50,7 @@ class SDRBridge:
         max_clients: int | None = None,
         source_id: str = "source-0",
         device_id: str | None = None,
+        run_id: str | None = None,
     ):
         self.source = source
         self.config = config or RadioConfig()
@@ -57,6 +62,7 @@ class SDRBridge:
         self.max_clients = max_clients
         self.source_id = source_id
         self.device_id = device_id
+        self.run_id = run_id or str(uuid.uuid4())
         self.ring = SharedIQRing(slots, block_samples, sample_format=self.config.sample_format, source_id=source_id)
         self.profiles = ProfileRegistry()
         for output_rate in (192_000, 96_000):
@@ -88,6 +94,11 @@ class SDRBridge:
         self.samples_written = 0
         self.source_queue_drops = 0
         self.source_errors = 0
+        self._next_drop_log_at = 0.0
+        self.dispatch_processing_seconds = 0.0
+        self.dispatch_processing_max_ms = 0.0
+        self.dispatch_slow_blocks = 0
+        self._next_slow_dispatch_log_at = 0.0
 
     @property
     def state(self) -> LifecycleState:
@@ -326,15 +337,47 @@ class SDRBridge:
             with self._lock:
                 self.source_queue_high_water = max(self.source_queue_high_water, depth)
         except queue.Full:
+            now = time.monotonic()
             with self._lock:
                 self.source_queue_drops += 1
                 self._pending_source_drops += chunk.sample_count
+                total_drops = self.source_queue_drops
+                should_log = total_drops == 1 or now >= self._next_drop_log_at
+                if should_log:
+                    self._next_drop_log_at = now + 5.0
+                    epoch = self._epoch
+                    high_water = self.source_queue_high_water
+            if should_log:
+                logger.warning(
+                    "source queue is full; newest block was dropped",
+                    extra={
+                        "code": "SOURCE_QUEUE_DROP",
+                        "run_id": self.run_id,
+                        "source_id": self.source_id,
+                        "epoch": str(epoch),
+                        "details": {
+                            "dropped_blocks_total": total_drops,
+                            "queue_capacity_blocks": self.source_queue_capacity,
+                            "queue_high_water_blocks": high_water,
+                        },
+                    },
+                )
 
     def _on_source_error(self, exc: BaseException) -> None:
         with self._lock:
             self.source_errors += 1
             self._last_error = str(exc)
             self._state = LifecycleState.ERROR
+        logger.error(
+            "source reported an acquisition error",
+            exc_info=(type(exc), exc, exc.__traceback__),
+            extra={
+                "code": "SOURCE_ERROR",
+                "run_id": self.run_id,
+                "source_id": self.source_id,
+                "epoch": str(self.epoch),
+            },
+        )
 
     def _dispatch_loop(self) -> None:
         while not self._dispatch_stop.is_set() or not self._source_queue.empty():
@@ -380,11 +423,38 @@ class SDRBridge:
                 lost_samples=lost_samples,
                 payload=chunk.payload,
             )
+            processing_started = time.perf_counter()
             self.ring.write(block)
             self._pipelines.process(block)
+            processing_seconds = time.perf_counter() - processing_started
+            block_budget_seconds = block.sample_count / block.sample_rate_sps
+            now = time.monotonic()
             with self._lock:
                 self.blocks_written += 1
                 self.samples_written += block.sample_count
+                self.dispatch_processing_seconds += processing_seconds
+                self.dispatch_processing_max_ms = max(self.dispatch_processing_max_ms, processing_seconds * 1000.0)
+                if processing_seconds > block_budget_seconds:
+                    self.dispatch_slow_blocks += 1
+                should_log_slow = processing_seconds > block_budget_seconds * 2 and now >= self._next_slow_dispatch_log_at
+                if should_log_slow:
+                    self._next_slow_dispatch_log_at = now + 5.0
+                    queue_depth = self._source_queue.qsize()
+            if should_log_slow:
+                logger.warning(
+                    "dispatcher processing exceeded two block periods",
+                    extra={
+                        "code": "DISPATCH_SLOW",
+                        "run_id": self.run_id,
+                        "source_id": self.source_id,
+                        "epoch": str(epoch),
+                        "details": {
+                            "processing_ms": processing_seconds * 1000.0,
+                            "block_budget_ms": block_budget_seconds * 1000.0,
+                            "queue_depth_blocks": queue_depth,
+                        },
+                    },
+                )
             self._source_queue.task_done()
 
     def apply_config(self, expected_revision: int, requested: RadioConfig | dict) -> RadioConfig:
@@ -551,6 +621,9 @@ class SDRBridge:
                 "source_queue_capacity": self.source_queue_capacity,
                 "source_queue_high_water": self.source_queue_high_water,
                 "source_errors": self.source_errors,
+                "dispatch_processing_average_ms": self.dispatch_processing_seconds * 1000.0 / self.blocks_written if self.blocks_written else 0.0,
+                "dispatch_processing_max_ms": self.dispatch_processing_max_ms,
+                "dispatch_slow_blocks": self.dispatch_slow_blocks,
                 "last_error": self._last_error,
                 "sample_rate_measured": self.samples_written * 1e9 / elapsed if self.running else 0.0,
                 "clients": [item.to_dict() for item in self._clients.values()],

@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 import threading
 import time
@@ -10,7 +11,8 @@ from unittest import mock
 import numpy as np
 
 from sdr_bridge.bridge import SDRBridge
-from sdr_bridge.config import DEFAULT_CONFIG, atomic_write_json, load_app_config, read_json, save_app_config
+from sdr_bridge.app import build_parser, merged_config
+from sdr_bridge.config import DEFAULT_CONFIG, atomic_write_json, default_config_root, load_app_config, read_json, save_app_config
 from sdr_bridge.model import Discontinuity, IQBlock, RadioConfig, SampleFormat, TimeDomain, TimestampOrigin
 from sdr_bridge.recording import ReplaySource, SigMFRecorder, validate_sigmf
 from sdr_bridge.source import SimulatedSource
@@ -26,6 +28,37 @@ def make_block(sequence, discontinuity=Discontinuity.NONE, epoch=1, count=16):
 
 
 class ConfigTests(unittest.TestCase):
+    def test_version_flag_is_safe_without_a_console(self):
+        with mock.patch.object(sys, "stdout", None):
+            with self.assertRaisesRegex(SystemExit, "0"):
+                build_parser().parse_args(["--version"])
+
+    def test_list_devices_cli_flag_is_available(self):
+        args = build_parser().parse_args(["--source", "soapy", "--list-devices"])
+        self.assertTrue(args.list_devices)
+        self.assertEqual(args.source, "soapy")
+
+    def test_named_instances_isolate_state_and_offset_ports(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.dict(os.environ, {"LOCALAPPDATA": directory}, clear=False):
+                self.assertEqual(
+                    default_config_root("rsp1"),
+                    Path(directory) / "SDRbridge" / "instances" / "rsp1",
+                )
+                config_path = Path(directory) / "base.json"
+                save_app_config(config_path, DEFAULT_CONFIG)
+                args = build_parser().parse_args([
+                    "--config", str(config_path),
+                    "--instance", "rsp1",
+                    "--port-offset", "100",
+                    "--device-id", "soapy:sdrplay:0000000001",
+                    "--udp", "127.0.0.1:7355",
+                ])
+                _, config = merged_config(args)
+                self.assertEqual(config["device_id"], "soapy:sdrplay:0000000001")
+                self.assertEqual(config["network"]["legacy_control_port"], 47_731)
+                self.assertEqual(config["network"]["control_port"], 47_732)
+
     def test_round_trip_unknown_version_and_corruption(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "app.json"

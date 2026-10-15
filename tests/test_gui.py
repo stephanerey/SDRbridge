@@ -10,7 +10,7 @@ from PyQt5 import QtTest, QtWidgets
 
 from sdr_bridge.bridge import SDRBridge
 from sdr_bridge.gui import BridgeWindow, SpectrumService
-from sdr_bridge.model import RadioConfig
+from sdr_bridge.model import DeviceDescriptor, RadioConfig
 from sdr_bridge.native_sdrplay import NativeSDRplaySource
 from sdr_bridge.source import SimulatedSource
 
@@ -108,6 +108,17 @@ class QtInterfaceTests(unittest.TestCase):
         )
         self.window._refresh_bandwidth_combo(10_000_000, 1_536_000)
         self.assertEqual(self.window.bandwidth_combo.count(), 8)
+
+    def test_source_dropdown_shows_backend_model_and_serial(self):
+        self.bridge.source.enumerate = lambda: [
+            DeviceDescriptor("simulated:0", "simulated", "Simulation", "seed-1"),
+            DeviceDescriptor("soapy:sdrplay:2001077942", "soapy/sdrplay", "RSPdx", "2001077942"),
+            DeviceDescriptor("soapy:sdrplay:0000000001", "soapy/sdrplay", "RSP1", "0000000001"),
+        ]
+        self.window._refresh_devices()
+        labels = [self.window.device_combo.itemText(i) for i in range(self.window.device_combo.count())]
+        self.assertIn("soapy/sdrplay: RSPdx — S/N 2001077942", labels)
+        self.assertIn("soapy/sdrplay: RSP1 — S/N 0000000001", labels)
 
     def test_antrack_style_digit_frequency_control_changes_one_digit(self):
         self.window.frequency_control.set_value_hz(144_300_000)

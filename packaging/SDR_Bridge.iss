@@ -1,5 +1,10 @@
 #define MyAppName "SDRbridge"
-#define MyAppVersion "0.3.0"
+#ifndef MyAppVersion
+#define MyAppVersion "0.4.0"
+#endif
+#ifndef ReleaseDir
+#define ReleaseDir "..\release-v0.4"
+#endif
 #define MyAppExeName "SDR_Bridge.exe"
 
 [Setup]
@@ -8,8 +13,8 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 DefaultDirName={localappdata}\Programs\SDRbridge
 DefaultGroupName=SDRbridge
-OutputDir=..\release-v0.3\installer
-OutputBaseFilename=SDRbridge_Setup_0.3.0
+OutputDir={#ReleaseDir}\installer
+OutputBaseFilename=SDRbridge_Setup_{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible
@@ -18,11 +23,14 @@ PrivilegesRequired=lowest
 UninstallDisplayIcon={app}\SDR_Bridge\{#MyAppExeName}
 
 [Files]
-Source: "..\release-v0.3\SDR_Bridge\*"; DestDir: "{app}\SDR_Bridge"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\release-v0.3\SDR_Bridge_Client\*"; DestDir: "{app}\SDR_Bridge_Client"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\release-v0.3\SDR_Bridge_Native_Client\*"; DestDir: "{app}\SDR_Bridge_Native_Client"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\release-v0.3\Connectors\*"; DestDir: "{app}\Connectors"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\release-v0.3\CLIENT_SETUP.md"; DestDir: "{app}\Documentation"; Flags: ignoreversion
+Source: "{#ReleaseDir}\SDR_Bridge\*"; DestDir: "{app}\SDR_Bridge"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#ReleaseDir}\SDR_Bridge_Client\*"; DestDir: "{app}\SDR_Bridge_Client"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#ReleaseDir}\SDR_Bridge_Native_Client\*"; DestDir: "{app}\SDR_Bridge_Native_Client"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#ReleaseDir}\Connectors\*"; DestDir: "{app}\Connectors"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#ReleaseDir}\CLIENT_SETUP.md"; DestDir: "{app}\Documentation"; Flags: ignoreversion
+Source: "{#ReleaseDir}\config.soapy-sdrpp.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#ReleaseDir}\config.native-sdrpp.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#ReleaseDir}\start-sdrbridge.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\SDRbridge"; Filename: "{app}\SDR_Bridge\{#MyAppExeName}"

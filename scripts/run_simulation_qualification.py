@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 from collections import deque
 import ctypes
 from ctypes import wintypes
@@ -20,6 +21,7 @@ from PyQt5 import QtWidgets
 
 from sdr_bridge.bridge import SDRBridge
 from sdr_bridge.gui import BridgeWindow
+from sdr_bridge.logging_setup import configure_logging
 from sdr_bridge.native_client import NativeIQClient
 from sdr_bridge.native_control import NativeControlServer
 from sdr_bridge.recording import SigMFRecorder, validate_sigmf
@@ -68,10 +70,19 @@ def main() -> int:
     parser.add_argument("--label", required=True)
     parser.add_argument("--output", default="output/qualification")
     parser.add_argument("--capture-seconds", type=float, default=0.0)
+    parser.add_argument("--no-gui", action="store_true", help="comparatif moteur sans fenêtre Qt")
     args = parser.parse_args()
     output = Path(args.output); output.mkdir(parents=True, exist_ok=True)
+    log_session = configure_logging("INFO", output / "logs", stream=False)
+    atexit.register(log_session.close)
+    import logging
+    logger = logging.getLogger("sdr_bridge.qualification")
+    logger.info(
+        "simulation qualification started",
+        extra={"code": "QUALIFICATION_START", "details": {"label": args.label, "duration_s": args.duration, "warmup_s": args.warmup}},
+    )
     source = SimulatedSource(block_samples=4096, tone_hz=10_000, amplitude=.25, seed=1)
-    bridge = SDRBridge(source, block_samples=4096, slots=64)
+    bridge = SDRBridge(source, block_samples=4096, slots=64, run_id=log_session.run_id)
     server = NativeControlServer(bridge, port=0)
     readers = []
     reader_threads = []
@@ -88,7 +99,7 @@ def main() -> int:
         "latency_observations": 0,
         "last": None,
     } for _ in range(2)]
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    app = None if args.no_gui else (QtWidgets.QApplication.instance() or QtWidgets.QApplication([]))
     window = None
     recorder = None; recorder_token = None
     prewarm_token = None
@@ -140,7 +151,8 @@ def main() -> int:
         readers.append((profile_client_id, profile_reader)); reader_counts.append({})
         thread = threading.Thread(target=local_worker, args=(5, profile_reader, profile_client_id), daemon=True)
         reader_threads.append(thread); thread.start()
-        window = BridgeWindow(bridge); window.show(); app.processEvents()
+        if app is not None:
+            window = BridgeWindow(bridge); window.show(); app.processEvents()
         # Construire le profil DSP natif avant l'acquisition. Le protocole interdit
         # l'abonnement réseau hors RUNNING, mais aucun travail lourd ne doit rester
         # dans la courte fenêtre d'inscription qui suit le start.
@@ -167,15 +179,19 @@ def main() -> int:
         bridge.unsubscribe_profile(prewarm_token); prewarm_token = None
         queue_drop_events.append({"at_s": time.monotonic() - started_wall, "stage": "outputs_armed", "total": bridge.source_queue_drops})
         next_sample = started_wall; next_progress = started_wall + 30
+        last_drop_trace = started_wall
         capture_stopped = False
         while True:
             now = time.monotonic(); elapsed = now - started_wall
             if elapsed >= args.duration:
                 break
-            app.processEvents()
+            if app is not None:
+                app.processEvents()
             if bridge.source_queue_drops != last_queue_drops:
                 last_queue_drops = bridge.source_queue_drops
-                queue_drop_events.append({"at_s": elapsed, "stage": "measurement", "total": last_queue_drops})
+                if len(queue_drop_events) == 4 or now - last_drop_trace >= 1.0:
+                    queue_drop_events.append({"at_s": elapsed, "stage": "measurement", "total": last_queue_drops})
+                    last_drop_trace = now
             if recorder and not capture_stopped and elapsed >= args.capture_seconds:
                 bridge.unsubscribe_profile(recorder_token); recorder.stop("fin de la fixture de qualification"); capture_stopped = True
             if now >= next_sample:
@@ -187,6 +203,8 @@ def main() -> int:
         if recorder and not capture_stopped:
             bridge.unsubscribe_profile(recorder_token); recorder.stop("fin de la fixture de qualification"); capture_stopped = True
         elapsed = time.monotonic() - started_wall
+        if bridge.source_queue_drops != queue_drop_events[-1]["total"]:
+            queue_drop_events.append({"at_s": elapsed, "stage": "measurement_final", "total": bridge.source_queue_drops})
         cpu_total_percent = (time.process_time() - started_cpu) / elapsed / max(1, os.cpu_count() or 1) * 100
         stop_started = time.monotonic()
         # Geler la production avant de désarmer les consommateurs. Cela mesure un
@@ -221,7 +239,7 @@ def main() -> int:
             item.pop("last", None)
         result.update({
             "duration_actual_s": elapsed,
-            "environment": {"python": sys.version.split()[0], "cpu_count": os.cpu_count(), "pid": os.getpid()},
+            "environment": {"python": sys.version.split()[0], "cpu_count": os.cpu_count(), "pid": os.getpid(), "log_file": str(log_session.log_path) if log_session.log_path else None},
             "source": {
                 "blocks": bridge.blocks_written,
                 "samples": bridge.samples_written,
@@ -229,6 +247,9 @@ def main() -> int:
                 "queue_capacity_blocks": bridge.source_queue_capacity,
                 "queue_high_water_blocks": bridge.source_queue_high_water,
                 "errors": bridge.source_errors,
+                "dispatch_processing_average_ms": bridge.status()["dispatch_processing_average_ms"],
+                "dispatch_processing_max_ms": bridge.status()["dispatch_processing_max_ms"],
+                "dispatch_slow_blocks": bridge.status()["dispatch_slow_blocks"],
             },
             "source_queue_drop_events": queue_drop_events,
             "local_readers": reader_counts,
@@ -243,7 +264,7 @@ def main() -> int:
             "private_memory_growth_after_warmup_mib": growth / 2**20,
             "stop_seconds": stop_seconds,
             "capture_samples": capture_samples,
-            "gui_active": True,
+            "gui_active": app is not None,
         })
         fast_readers_ok = all(item.get("drops", 1) == 0 and item.get("torn_retries", 1) == 0 for item in reader_counts[:5])
         udp_ok = all(item["gaps"] == 0 and item["packets"] > 0 for item in udp_results)
@@ -277,6 +298,12 @@ def main() -> int:
         except Exception: pass
     report = output / f"{args.label}.json"
     report.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    logger.info(
+        "simulation qualification finished",
+        extra={"code": "QUALIFICATION_FINISH", "details": {"label": args.label, "passed": result.get("passed"), "report": str(report.resolve()), "criteria": result.get("criteria")}},
+    )
+    log_session.close()
+    atexit.unregister(log_session.close)
     print(json.dumps({"report": str(report.resolve()), "passed": result.get("passed"), "criteria": result.get("criteria")}, ensure_ascii=False), flush=True)
     return 0 if result.get("passed") else 1
 

@@ -1,37 +1,62 @@
-# Rapport de qualification SDRbridge V0.3
+# Rapport de qualification SDRbridge 0.4.0
 
-## Résultat exécuté
+## Résultat du 15 octobre 2026
 
 | Domaine | État | Preuve |
 |---|---|---|
-| Contrats, ring, DSP, RF simulés | Implémenté et testé | `tests/` — 28/28 `unittest` |
-| Réseau natif, UDP, Qt, capture/replay | Implémenté et testé | `output/qualification/smoke-bounded-metrics.json`, captures Qt |
-| Native/ExtIO/ANTRACK locaux | Compilé et testé localement | `tests/test_local_clients.py`, `native/build/**` |
-| Paquet portable | Compilé et smoke-testé | `release-v0.3/`, client natif : 2 919 datagrammes / 3 s |
-| Fonctionnel 10 min | Échec final | `output/qualification/functional-10m-queue256.json` |
-| Endurance 60 min | Non lancée | bloquée par AC-14 |
-| Qualification matérielle | Non exécutée | RSPdx et logiciels tiers non activés |
+| Tests applicatifs | Vert | 48/48 `unittest` |
+| Inventaire Soapy | Vert | RSPdx `2001077942`, RSP1 `0000000001`, backend MSi2500 détectés |
+| RX Soapy séparé | Vert | RSPdx ≈ 1,915 MS/s ; RSP1 ≈ 1,919 MS/s ; zéro drop/erreur |
+| Deux processus, natif + Soapy | Vert | RSPdx ≈ 1,910 MS/s et RSP1 ≈ 1,934 MS/s simultanément ; zéro drop/erreur |
+| Deux processus SoapySDRPlay | Rouge | le second flux tombe à ≈ 52 kS/s avec le module Pothos 2021/API 3.07 |
+| Paquet portable 0.4.0 | Vert | `--version` et inventaire Soapy terminent avec le code 0 |
+| Installateur 0.4.0 | Vert | installation isolée, exécution, connecteurs présents et désinstallation complète |
+| Fonctionnel simulé 10 min | Rouge historique | drops tardifs du dispatcher ; endurance 60 min non lancée |
 
-Le smoke 30 s avec GUI, cinq lecteurs locaux, profils 192/96 kS/s et deux UDP passe avec zéro drop, high-water 22/64, p95 29,4 ms, mémoire 102,8 MiB et arrêt 0,42 s (`smoke-queue64.json`). Après redimensionnement justifié de la file à 256 blocs, le run 10 min final atteint 783 drops source entre 570,8 et 597,5 s, high-water 256/256 et p95 531,9 ms. Les lecteurs rapides et UDP ne signalent pas de trous ; la perte se situe dans le couple source simulée/dispatcher lors d’un rattrapage tardif Windows. Ce résultat est conservé comme échec critique, pas comme tolérance.
+La configuration matérielle simultanée retenue est donc un processus avec le RSPdx via le backend natif SDRplay et un second processus avec le clone RSP1 via Soapy. Les deux sources ont reçu pendant 10 secondes à leur débit attendu, sans drop de file ni erreur de source. Le test RX n'active aucun chemin TX.
 
-Un contrôle comparatif de 60 s sans boucle Qt, avec les deux profils DSP et cinq lecteurs ring, produit 29 293 blocs, zéro drop, high-water 8/256 et zéro erreur. Il renforce l’hypothèse d’une suspension/charge de l’event loop Windows dans le scénario GUI ; il ne remplace pas la recette intégrée.
+Les rapports reproductibles sont enregistrés dans :
+
+- `output/hardware-smoke-v0.4/sequential.json` ;
+- `output/hardware-smoke-v0.4-allsoapy/simultaneous.json` ;
+- `output/hardware-smoke-v0.4-mixed/simultaneous.json` ;
+- `output/device-list-packaged-final/sdrbridge.log`.
+
+Le module `sdrPlaySupport.dll` installé avec PothosSDR date de 2021 et annonce une construction pour l'API SDRplay 3.07 alors que l'API installée est 3.15. L'échec de deux processus Soapy simultanés reste donc une limite de la pile locale ; il ne remet pas en cause le mode mixte vérifié.
+
+## Binaire livré localement
+
+- installateur : `release-v0.4/installer/SDRbridge_Setup_0.4.0.exe` ;
+- SHA-256 installateur : `952007C581C92062343E66E34AC5AE0FEA7F5F0E1B0D3ABBB662D9E01DA5455F` ;
+- exécutable portable : `release-v0.4/SDR_Bridge/SDR_Bridge.exe` ;
+- SHA-256 exécutable : `27627269C60A22EEFB52AE48C5A3D50203F00F410543554CC573A211DB3D5D31`.
+
+L'installateur n'est pas signé par un certificat d'éditeur. Windows peut afficher un avertissement SmartScreen. Le dossier généré `release-v0.4` n'est pas versionné dans Git ; l'installateur pourra être joint séparément à une release GitHub.
 
 ## Commandes reproductibles
 
 ```powershell
 cd E:\PLDesign\SDRbridge
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
-.\.venv\Scripts\python.exe scripts\run_simulation_qualification.py --duration 30 --warmup 5 --capture-seconds 5 --label smoke
-.\.venv\Scripts\python.exe scripts\run_simulation_qualification.py --duration 600 --warmup 300 --capture-seconds 10 --label functional-10m
+.\.venv\Scripts\python.exe -m sdr_bridge.app --source soapy --list-devices
+.\.venv\Scripts\python.exe scripts\run_hardware_smoke.py `
+  --device-id 'soapy:sdrplay:2001077942' `
+  --device-id 'soapy:sdrplay:0000000001' --duration 8
+.\.venv\Scripts\python.exe scripts\run_hardware_smoke.py `
+  --device-id 'native-sdrplay:first-available' `
+  --device-id 'soapy:sdrplay:0000000001' --duration 10 --simultaneous
 .\packaging\build_exe.ps1
 ```
 
-Le run 60 min doit rester interdit tant que le run 10 min final n’est pas vert. Aucun de ces scripts ne modifie un pilote, pare-feu, RSPdx, ANTRACK ou HDSDR.
+Le script matériel vérifie qu'au moins 80 % du taux demandé est effectivement reçu. Un processus lent ne peut donc plus produire un faux résultat vert.
 
-## Procédure de recette réelle
+## Gate d'endurance encore ouvert
 
-1. Relever versions de Windows, API SDRplay, pilote Soapy, CPU/RAM, architectures et interfaces réseau ; conserver les installations tierces intactes et faire une sauvegarde de leurs fichiers de configuration.
-2. Démarrer d’abord le bridge avec `--source native` ou `--source soapy`, sans `--auto-start`, vérifier les capacités et l’état effectif dans la GUI, puis lancer RX.
-3. Connecter manuellement ANTRACK au shim livré et vérifier 96/192 kS/s ; charger manuellement l’ExtIO dans HDSDR 2.81a ; configurer SDR++ 1.2.1 en Network Source raw CS16. Aucun client ne doit retuner le matériel.
-4. Mesurer débit, qualité IQ, pertes par couche, latence corrélée, CPU/RAM et arrêt ; enregistrer les versions et les journaux. QMAP/Linrad reste hors verdict.
-5. En cas d’échec, arrêter le bridge, restaurer les sauvegardes et ne modifier aucun pilote ou pare-feu sans autorisation distincte.
+La v0.4 ne revendique pas encore une qualification d'endurance complète. Le run simulé final de 10 minutes avec file 256 avait produit 783 drops entre 570,8 et 597,5 secondes. Une passe de 30 secondes sous forte charge machine avait aussi échoué avec et sans Qt. L'endurance 60 minutes reste interdite tant qu'un smoke au repos puis un nouveau run de 10 minutes ne sont pas verts.
+
+## Périmètre restant
+
+- aucune clé RTL2832 réelle n'a encore été testée ;
+- l'USRP B100 n'a pas encore été branché ni qualifié via UHD/Soapy ;
+- LAN/VPN, pare-feu et QMAP/Linrad restent hors verdict ;
+- le module SoapySDRPlay doit être réévalué avec une construction compatible API 3.15 avant de retester deux backends Soapy simultanés.

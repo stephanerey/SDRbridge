@@ -8,10 +8,23 @@ import numpy as np
 
 from .model import DeviceCapabilities, DeviceDescriptor, RadioConfig, SampleFormat, TimeDomain, TimestampOrigin
 from .source import BlockCallback, ErrorCallback, IQSource, SourceChunk
+from .soapy_runtime import load_soapy_api
 
 
 class SoapySource(IQSource):
     """Backend Soapy générique RX ; aucun appareil n'est ouvert à l'import."""
+
+    NON_SDR_DRIVERS = frozenset({"audio"})
+    DRIVER_PRIORITY = {
+        "sdrplay": 10,
+        "uhd": 20,
+        "rtlsdr": 30,
+        "airspy": 40,
+        "airspyhf": 41,
+        "hackrf": 50,
+        "lime": 60,
+        "miri": 90,
+    }
 
     def __init__(self, block_samples: int = 4096, driver: str | None = None, *, api: Any | None = None):
         self.block_samples = int(block_samples)
@@ -35,24 +48,32 @@ class SoapySource(IQSource):
     def _api(self):
         if self._api_override is not None:
             return self._api_override
-        try:
-            import SoapySDR
-        except ImportError as exc:
-            raise RuntimeError("SoapySDR compatibility module is unavailable") from exc
-        return SoapySDR
+        self._api_override = load_soapy_api()
+        return self._api_override
 
     def _query(self) -> list[dict[str, str]]:
         args = {"driver": self.driver} if self.driver else {}
-        return list(self._api().Device_enumerate(args))
+        devices = [
+            dict(item) for item in self._api().Device_enumerate(args)
+            if str(item.get("driver", self.driver or "unknown")).lower() not in self.NON_SDR_DRIVERS
+        ]
+        return sorted(
+            devices,
+            key=lambda item: (
+                self.DRIVER_PRIORITY.get(str(item.get("driver", "unknown")).lower(), 70),
+                str(item.get("label", "")),
+                str(item.get("serial") or item.get("device_id") or ""),
+            ),
+        )
 
     def enumerate(self) -> list[DeviceDescriptor]:
         result: list[DeviceDescriptor] = []
         for index, raw in enumerate(self._query()):
             serial = raw.get("serial") or raw.get("device_id")
-            driver = raw.get("driver", self.driver or "unknown")
+            driver = raw.get("driver", self.driver or "unknown").lower()
             label = raw.get("label") or raw.get("hardware") or raw.get("product") or driver
             stable = serial or f"enumeration-{index}"
-            result.append(DeviceDescriptor(f"soapy:{driver}:{stable}", driver, label, serial=serial))
+            result.append(DeviceDescriptor(f"soapy:{driver}:{stable}", f"soapy/{driver}", label, serial=serial))
         return result
 
     def _raw_for_id(self, device_id: str) -> dict[str, str]:

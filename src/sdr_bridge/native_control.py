@@ -92,7 +92,7 @@ class NativeControlManager:
         self.bridge = bridge
         self.token = token
         self.clock = clock
-        self.run_id = str(uuid.uuid4())
+        self.run_id = getattr(self.bridge, "run_id", None) or str(uuid.uuid4())
         self.bridge.run_id = self.run_id
         self._lock = threading.RLock()
         self._sessions: dict[str, Session] = {}

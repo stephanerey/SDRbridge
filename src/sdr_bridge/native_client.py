@@ -16,7 +16,8 @@ class NativeIQClient:
         self._udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._udp.bind(("127.0.0.1", 0))
         self._udp.settimeout(1.0)
-        self._request("hello", {"client_name": "SDRbridge reference client", "client_version": "0.3.0", **({"token": token} if token else {})})
+        from . import __version__
+        self._request("hello", {"client_name": "SDRbridge reference client", "client_version": __version__, **({"token": token} if token else {})})
         source = self._request("list_sources", {})["items"][0]
         self.subscription = self._request("subscribe", {
             "source_id": source["source_id"],

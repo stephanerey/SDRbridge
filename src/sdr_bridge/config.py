@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import tempfile
 from typing import Any
+import re
 
 import jsonschema
 
@@ -43,11 +44,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
-def default_config_root() -> Path:
+INSTANCE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+
+
+def normalize_instance_name(value: str | None) -> str:
+    name = (value or "default").strip()
+    if not INSTANCE_NAME_PATTERN.fullmatch(name):
+        raise ValueError("instance name must contain 1-64 letters, digits, '.', '_' or '-'")
+    return name
+
+
+def default_config_root(instance_name: str | None = None) -> Path:
     base = os.environ.get("LOCALAPPDATA")
     if not base:
         raise RuntimeError("LOCALAPPDATA is unavailable")
-    return Path(base) / "SDRbridge"
+    root = Path(base) / "SDRbridge"
+    instance = normalize_instance_name(instance_name)
+    return root if instance == "default" else root / "instances" / instance
 
 
 def schema_path(name: str) -> Path:
@@ -105,8 +118,8 @@ def atomic_write_json(path: Path, value: dict, schema_name: str) -> None:
         raise
 
 
-def load_app_config(root_or_file: str | Path | None = None) -> tuple[Path, dict]:
-    target = Path(root_or_file) if root_or_file else default_config_root()
+def load_app_config(root_or_file: str | Path | None = None, *, instance_name: str | None = None) -> tuple[Path, dict]:
+    target = Path(root_or_file) if root_or_file else default_config_root(instance_name)
     path = target if target.suffix.lower() == ".json" else target / "app.json"
     if not path.exists():
         return path, deepcopy(DEFAULT_CONFIG)
