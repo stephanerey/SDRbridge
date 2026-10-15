@@ -26,7 +26,6 @@
 namespace sigpath {
     SDRPP_EXPORT SourceManager sourceManager;
 }
-
 namespace gui {
     SDRPP_EXPORT ImGui::WaterFall waterfall;
 }

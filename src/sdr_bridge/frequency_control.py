@@ -106,4 +106,3 @@ class FrequencyControlWidget(QWidget):
         for index, digit in enumerate(self._digits):
             digit.setText(digits[index])
             digit.setDimmed(index < first)
-

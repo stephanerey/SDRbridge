@@ -33,4 +33,3 @@
 - Le test E2E du point 6 utilise la source simulée ; l'observation matérielle du point 7 ne constitue pas une qualification complète du RSPdx ni de l'API SDRplay.
 - Toute mise à jour du cœur SDR++ exige une nouvelle compilation et une nouvelle qualification de la DLL.
 - La synchronisation visuelle de fréquence a été vérifiée directement dans les fenêtres SDRbridge et SDR++.
-

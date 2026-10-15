@@ -13,7 +13,6 @@ void putBe16(std::vector<std::uint8_t>& out, std::size_t at, std::uint16_t v) {
     out[at] = static_cast<std::uint8_t>(v >> 8);
     out[at + 1] = static_cast<std::uint8_t>(v);
 }
-
 void putBe32(std::vector<std::uint8_t>& out, std::size_t at, std::uint32_t v) {
     out[at] = static_cast<std::uint8_t>(v >> 24);
     out[at + 1] = static_cast<std::uint8_t>(v >> 16);

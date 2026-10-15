@@ -71,4 +71,3 @@ if(BUILD_TESTING)
 endif()
 
 install(TARGETS sdbu_source RUNTIME DESTINATION modules)
-

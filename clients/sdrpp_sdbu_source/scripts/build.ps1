@@ -82,4 +82,3 @@ Copy-Item -LiteralPath $builtDll -Destination (Join-Path $binRoot 'sdbu_source.d
 $hash = (Get-FileHash -LiteralPath (Join-Path $binRoot 'sdbu_source.dll') -Algorithm SHA256).Hash
 Write-Host "DLL prête: $(Join-Path $binRoot 'sdbu_source.dll')"
 Write-Host "SHA256: $hash"
-

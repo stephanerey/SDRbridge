@@ -40,4 +40,3 @@ La syntonisation reste volontairement en lecture seule côté DLL : la fréquenc
 - Le chargement réel dans SDR++ et la réception d'un flux doivent être requalifiés après toute mise à jour du cœur SDR++.
 
 Licence : GPL-3.0-or-later, cohérente avec SDR++.
-

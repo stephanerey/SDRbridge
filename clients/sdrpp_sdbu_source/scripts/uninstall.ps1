@@ -27,4 +27,3 @@ if ($previousDll -and (Test-Path -LiteralPath $previousDll)) {
 Copy-Item -LiteralPath $configBackup -Destination (Join-Path $root 'config.json') -Force
 Remove-Item -LiteralPath $manifestPath
 Write-Host 'Retour arrière SDRbridge SDBU v2 terminé.'
-

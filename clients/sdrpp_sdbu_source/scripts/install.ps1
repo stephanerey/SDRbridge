@@ -71,4 +71,3 @@ Write-Host "Installé: $destination"
 Write-Host "Instance ajoutée: SDRbridge SDBU v2"
 Write-Host "Sauvegarde de configuration: $configBackup"
 Write-Host "Manifeste de retour arrière: $manifestPath"
-
