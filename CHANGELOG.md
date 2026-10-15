@@ -1,6 +1,6 @@
 # Historique des versions
 
-## 0.4.0 — en préparation
+## 0.4.0 — publiée le 15 octobre 2026
 
 - catalogue SoapySDR filtré avec modèle et numéro de série dans la liste des sources ;
 - couche ctypes Soapy intégrée au paquet, avec PothosSDR comme runtime externe ;

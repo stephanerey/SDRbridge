@@ -31,7 +31,7 @@ Le module `sdrPlaySupport.dll` installé avec PothosSDR date de 2021 et annonce 
 - exécutable portable : `release-v0.4/SDR_Bridge/SDR_Bridge.exe` ;
 - SHA-256 exécutable : `27627269C60A22EEFB52AE48C5A3D50203F00F410543554CC573A211DB3D5D31`.
 
-L'installateur n'est pas signé par un certificat d'éditeur. Windows peut afficher un avertissement SmartScreen. Le dossier généré `release-v0.4` n'est pas versionné dans Git ; l'installateur pourra être joint séparément à une release GitHub.
+L'installateur n'est pas signé par un certificat d'éditeur. Windows peut afficher un avertissement SmartScreen. Le dossier généré `release-v0.4` n'est pas versionné dans Git ; l'installateur validé est publié séparément comme fichier joint à la release GitHub v0.4.0.
 
 Le smoke installé ouvre réellement la fenêtre `SDRbridge 0.4.0 — RX — default` avec la configuration Soapy, puis la ferme proprement avec le code 0. Le Qt 5.15.2 embarqué est initialisé avant le runtime Pothos Qt 5.15.3 afin d'éviter le mélange de DLL observé dans la première construction.
 

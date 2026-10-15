@@ -25,7 +25,7 @@
 
 - Deux processus utilisant tous les deux SoapySDRPlay ne tiennent pas 2 MS/s avec le module Pothos 2021 construit pour l'API SDRplay 3.07 ; le second flux tombe à environ 52 kS/s. Utiliser le mode mixte natif + Soapy sur cette machine.
 - Aucune clé RTL2832 réelle ni USRP B100 n'a encore été qualifié. Leur compatibilité dépend du module Soapy correspondant (`rtlsdr` ou `uhd`).
-- L'installateur n'est pas signé et n'est pas encore joint à une release GitHub.
+- L'installateur publié avec la release GitHub v0.4.0 n'est pas signé ; Windows peut afficher un avertissement SmartScreen.
 - Le gate historique d'endurance reste ouvert : le run simulé final de 10 minutes a produit des drops tardifs, donc le run 60 minutes n'a pas été lancé.
 
 ## Reprise
@@ -33,4 +33,4 @@
 1. Tester une clé RTL2832 réelle via SoapyRTLSDR, puis l'USRP B100 via UHD/Soapy.
 2. Mettre à jour ou reconstruire SoapySDRPlay pour l'API 3.15, puis retester deux processus Soapy simultanés.
 3. Rejouer le smoke simulé au repos, le run de 10 minutes, puis seulement l'endurance de 60 minutes.
-4. Publier séparément l'installateur validé comme asset d'une release GitHub lorsque la v0.4.0 doit être diffusée aux utilisateurs.
+4. Pour chaque prochaine version, reconstruire et requalifier l'installateur avant de le joindre à la release GitHub correspondante.

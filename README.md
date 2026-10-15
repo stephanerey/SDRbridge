@@ -2,7 +2,7 @@
 
 SDRbridge est un répartiteur RX pour Windows : il ouvre une seule source SDR, publie son flux IQ et permet à plusieurs applications de réception de l’utiliser simultanément sans leur donner le contrôle du matériel.
 
-La version 0.4 en préparation prend en charge une source simulée, le replay SigMF, le backend natif SDRplay et un backend générique SoapySDR. Soapy énumère les récepteurs connectés par modèle et numéro de série ; les périphériques audio exposés par PothosSDR sont exclus de la liste.
+La version 0.4 prend en charge une source simulée, le replay SigMF, le backend natif SDRplay et un backend générique SoapySDR. Soapy énumère les récepteurs connectés par modèle et numéro de série ; les périphériques audio exposés par PothosSDR sont exclus de la liste.
 
 ![Deux instances de SDR++, HDSDR et SDRbridge partageant le même flux RX](docs/assets/sdrbridge-three-clients.png)
 
@@ -48,7 +48,7 @@ Sur la machine de développement, PothosSDR expose bien la factory `rtlsdr`, mai
 
 ### Installation simple pour un utilisateur final
 
-La v0.3 reste la version publiée. Le prochain fichier à distribuer sera **`SDRbridge_Setup_0.4.0.exe`**. Il contient l’application et ses dépendances Python : l’utilisateur le lance, suit l’assistant, puis démarre SDRbridge depuis le menu Démarrer ou le raccourci du Bureau. Il n’a besoin ni de Python, ni de Git, ni de Visual Studio. Les pilotes matériels, et PothosSDR pour le backend Soapy, restent des prérequis externes.
+La version publiée actuelle est la **v0.4.0**. Le fichier recommandé est **`SDRbridge_Setup_0.4.0.exe`**, disponible dans la [release GitHub v0.4.0](https://github.com/stephanerey/SDRbridge/releases/tag/v0.4.0). Il contient l’application et ses dépendances Python : l’utilisateur le lance, suit l’assistant, puis démarre SDRbridge depuis le menu Démarrer ou le raccourci du Bureau. Il n’a besoin ni de Python, ni de Git, ni de Visual Studio. Les pilotes matériels, et PothosSDR pour le backend Soapy, restent des prérequis externes.
 
 **`SDR_Bridge.exe` ne doit pas être copié seul.** Le build actuel est une application portable « en dossier » : l’exécutable dépend des DLL et du répertoire `_internal` placés à côté de lui. Deux distributions sont donc possibles :
 
@@ -57,7 +57,7 @@ La v0.3 reste la version publiée. Le prochain fichier à distribuer sera **`SDR
 
 Pour utiliser un RSPdx, le pilote et l’API SDRplay officiels doivent aussi être installés sur le PC. Ils ne sont pas remplacés par SDRbridge. Les connecteurs SDR++ et HDSDR s’installent ensuite avec les procédures dédiées plus bas.
 
-> Le dépôt Git versionne les sources et les DLL clientes, pas le paquet principal généré `release-v0.4`. Le paquet v0.4 doit être construit et validé avant d’être joint à une nouvelle release GitHub.
+> Le dépôt Git versionne les sources et les DLL clientes, pas le paquet principal généré `release-v0.4`. L’installateur validé est publié séparément comme fichier joint à la release GitHub.
 
 ### Construire la distribution depuis les sources
 
