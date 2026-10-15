@@ -1,4 +1,5 @@
 import importlib.util
+import os
 from pathlib import Path
 import subprocess
 import unittest
@@ -43,9 +44,16 @@ class LocalClientCompatibilityTests(unittest.TestCase):
 
     def test_extio_win32_smoke_reads_owned_v2_copies(self):
         directory = Path(__file__).resolve().parents[1] / "native" / "build" / "extio_bridge" / "Release"
-        result = subprocess.run([str(directory / "extio_smoke.exe")], cwd=directory, capture_output=True, text=True, timeout=10)
+        env = os.environ.copy()
+        env["SDRBRIDGE_CONTROL_PORT"] = str(self.control.address[1])
+        env["SDRBRIDGE_EXPECTED_FREQUENCY"] = str(self.bridge.config.center_frequency_hz)
+        result = subprocess.run(
+            [str(directory / "extio_smoke.exe")], cwd=directory, env=env,
+            capture_output=True, text=True, timeout=10,
+        )
         self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
         self.assertIn("samples=", result.stdout)
+        self.assertIn("lo_events=1", result.stdout)
 
 
 if __name__ == "__main__":
