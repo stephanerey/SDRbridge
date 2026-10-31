@@ -1,4 +1,20 @@
-# Rapport de qualification SDRbridge 0.4.0
+# Rapport de qualification SDRbridge 0.5.0
+
+## Complément QMAP du 31 octobre 2026
+
+| Domaine | État | Preuve |
+|---|---|---|
+| Tests applicatifs | Vert | 51/51 `unittest`, connecteurs historiques inclus |
+| Trame QMAP/Linrad | Vert | 1416 octets, header 24 octets, 348 IQ CS16, agrégation et discontinuités testées |
+| DSP QMAP | Vert | profil 96 kS/s séparé, convention spectrale testée, zéro erreur DSP |
+| Paquet portable 0.5.0 | Vert | smoke simulé puis RSP1A réel, centre 144,3 MHz, IQ non nul |
+| Coexistence SDR++/QMAP | Vert | destinations SDBU 7355 et QMAP 50004 actives simultanément |
+| Interface QMAP réelle | À confirmer | QMAP 0.6 écoute bien 50004 ; validation visuelle avec **Monitor** à terminer |
+| Installateur 0.5.0 | Non produit | Inno Setup absent de la machine de build ; paquet portable conservé localement |
+
+Le smoke matériel utilise le RSP1A `2236027C98` via Soapy. Après stabilisation, SDRbridge mesure environ 1,95 MS/s avec zéro perte de file, zéro erreur source et zéro erreur DSP. Le chemin reste strictement RX.
+
+## Résultat historique v0.4 du 15 octobre 2026
 
 ## Résultat du 15 octobre 2026
 
@@ -60,5 +76,5 @@ La v0.4 ne revendique pas encore une qualification d'endurance complète. Le run
 
 - aucune clé RTL2832 réelle n'a encore été testée ;
 - l'USRP B100 n'a pas encore été branché ni qualifié via UHD/Soapy ;
-- LAN/VPN, pare-feu et QMAP/Linrad restent hors verdict ;
+- LAN/VPN et pare-feu restent hors verdict ; la recette visuelle QMAP reste à confirmer ;
 - le module SoapySDRPlay doit être réévalué avec une construction compatible API 3.15 avant de retester deux backends Soapy simultanés.

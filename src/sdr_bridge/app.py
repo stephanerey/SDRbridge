@@ -21,7 +21,7 @@ from .operations import WatchdogService
 from .recording import ReplaySource, SigMFRecorder
 from .soapy_source import SoapySource
 from .source import SimulatedSource
-from .udp import UDPStreamer
+from .udp import QMAPStreamer, UDPStreamer
 from . import __version__
 
 
@@ -50,6 +50,34 @@ def _offset_endpoint(spec: str, offset: int) -> str:
     return f"{host}:{port}"
 
 
+def _offset_udp_entry(entry, offset: int):
+    if isinstance(entry, str):
+        return _offset_endpoint(entry, offset)
+    if isinstance(entry, dict) and set(entry) == {"endpoint", "transport"}:
+        return {**entry, "endpoint": _offset_endpoint(entry["endpoint"], offset)}
+    raise ValueError("UDP destination must be HOST:PORT or {endpoint, transport}")
+
+
+def _normalize_udp_entries(entries, default_transport: str) -> list[tuple[str, str]]:
+    if entries is None:
+        return []
+    if isinstance(entries, (str, dict)):
+        entries = [entries]
+    normalized: list[tuple[str, str]] = []
+    valid = {"sdbu_v2", "sdrpp_raw_cs16", "qmap_linrad"}
+    for entry in entries:
+        if isinstance(entry, str):
+            endpoint, transport = entry, default_transport
+        elif isinstance(entry, dict) and set(entry) == {"endpoint", "transport"}:
+            endpoint, transport = entry["endpoint"], entry["transport"]
+        else:
+            raise ValueError("UDP destination must be HOST:PORT or {endpoint, transport}")
+        if not isinstance(endpoint, str) or transport not in valid:
+            raise ValueError("invalid UDP endpoint or transport")
+        normalized.append((endpoint, transport))
+    return normalized
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = WindowSafeArgumentParser(description=f"SDRbridge {__version__} — réception IQ multi-clients")
     parser.add_argument("--version", action="version", version=f"SDRbridge {__version__}")
@@ -68,7 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--enable-network", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--auto-start", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--udp", metavar="HOST:PORT", action="append", help="destination opérateur UDP (répétable)")
-    parser.add_argument("--udp-transport", choices=("sdbu_v2", "sdrpp_raw_cs16"), default=None, help="format UDP opérateur")
+    parser.add_argument("--udp-transport", choices=("sdbu_v2", "sdrpp_raw_cs16", "qmap_linrad"), default=None, help="format UDP opérateur")
     parser.add_argument("--frequency", type=int)
     parser.add_argument("--gain-reduction", type=int)
     parser.add_argument("--block-samples", type=int)
@@ -112,7 +140,7 @@ def merged_config(args: argparse.Namespace) -> tuple[Path, dict]:
         if config.get("udp_destination"):
             config["udp_destination"] = _offset_endpoint(config["udp_destination"], args.port_offset)
         config["udp_destinations"] = [
-            _offset_endpoint(item, args.port_offset) for item in config.get("udp_destinations", [])
+            _offset_udp_entry(item, args.port_offset) for item in config.get("udp_destinations", [])
         ]
     if config["source"] == "replay" and not config.get("replay_path"):
         raise ValueError("--source replay requires --replay or replay_path in configuration")
@@ -135,7 +163,7 @@ def create_source(config: dict):
 
 
 class AppRuntime:
-    def __init__(self, config: dict, *, operator_udp: str | list[str] | None = None, operator_udp_transport: str = "sdbu_v2", run_id: str | None = None, instance_name: str = "default"):
+    def __init__(self, config: dict, *, operator_udp=None, operator_udp_transport: str = "sdbu_v2", run_id: str | None = None, instance_name: str = "default"):
         self.config = config
         self.instance_name = normalize_instance_name(instance_name)
         buffers = config["buffers"]
@@ -192,15 +220,13 @@ class AppRuntime:
             if configured is None or (configured == [] and config.get("udp_destination")):
                 configured = config.get("udp_destination")
             operator_udp = configured
-        if isinstance(operator_udp, str):
-            operator_udp = [operator_udp]
-        self.operator_udp_specs = list(operator_udp or [])
         self.operator_udp_transport = operator_udp_transport
-        self.operator_udps: dict[str, UDPStreamer] = {}
+        self.operator_udp_specs = _normalize_udp_entries(operator_udp, operator_udp_transport)
+        self.operator_udps: dict[str, UDPStreamer | QMAPStreamer] = {}
         # Compatibility alias for older GUI/automation code. It points to the
         # first configured destination, while operator_udps contains all of
         # them.
-        self.operator_udp: UDPStreamer | None = None
+        self.operator_udp: UDPStreamer | QMAPStreamer | None = None
         self.watchdog = WatchdogService(self.bridge)
         self.recorder: SigMFRecorder | None = None
         self._recorder_token: str | None = None
@@ -218,8 +244,8 @@ class AppRuntime:
             self.native_control.start()
         if start_rx:
             self.bridge.start()
-        for spec in self.operator_udp_specs:
-            self.add_udp_destination(spec, self.operator_udp_transport)
+        for spec, transport in self.operator_udp_specs:
+            self.add_udp_destination(spec, transport)
         self.watchdog.start()
         logger.info(
             "runtime started",
@@ -245,7 +271,11 @@ class AppRuntime:
         key = f"{host}:{port}"
         if key in self.operator_udps:
             raise ValueError(f"UDP destination already exists: {key}")
-        streamer = UDPStreamer(self.bridge.ring, (host, port), transport=transport or self.operator_udp_transport)
+        selected_transport = transport or self.operator_udp_transport
+        if selected_transport == "qmap_linrad":
+            streamer = QMAPStreamer(self.bridge, (host, port))
+        else:
+            streamer = UDPStreamer(self.bridge.ring, (host, port), transport=selected_transport)
         self.operator_udps[key] = streamer
         try:
             streamer.start()

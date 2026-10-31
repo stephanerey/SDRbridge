@@ -30,6 +30,7 @@ A-01 : RX uniquement. A-02 : une source matérielle active en V1, architecture e
 | P-12 | Nouveau contrôle LAN natif avec jeton de lecture ; destinataire unicast client limité à son adresse pair | Ne pas fournir une émission arbitraire à un client distant |
 | P-13 | Files bornées ; surcharge d'un consommateur = pertes comptées chez lui | Aucun client lent ne bloque la source |
 | P-14 | Arrêt de recorder sur saturation/disque plein ; pas d'effacement automatique d'anciens fichiers | Préserver la réception et les captures existantes |
+| P-15 | QMAP 0.6 via Linrad UDP, profil CS16 96 kS/s séparé, port loopback 50004 | Préserver SDBU/SDR++ et partager le DSP avec tout profil 96 kS/s équivalent |
 
 Les tests qui utilisent une minuterie doivent employer une horloge injectable lorsque possible ; ne pas faire attendre les tests unitaires en temps réel pendant les délais du tableau.
 

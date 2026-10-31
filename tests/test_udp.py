@@ -13,21 +13,24 @@ from sdr_bridge.udp import (
     HEADER_BYTES,
     FLAG_DISCONTINUITY,
     FLAG_TIME_VALID,
+    QMAPEncoder,
+    QMAP_PACKET_BYTES,
     SDBUEncoder,
     UDPDestination,
     parse_datagram,
+    parse_qmap_datagram,
 )
 
 
-def _block(sample_format=SampleFormat.CS16, count=400):
+def _block(sample_format=SampleFormat.CS16, count=400, *, rate=192_000, discontinuity=Discontinuity.START):
     if sample_format is SampleFormat.CS16:
         payload = np.arange(count * 2, dtype="<i2").tobytes()
     else:
         payload = (np.arange(count, dtype=np.float32) + 1j * np.arange(count, dtype=np.float32)).astype("<c8").tobytes()
     return IQBlock(
-        "source-0", 3, 9, 5, count, 192_000, 144_300_000, 7, sample_format,
+        "source-0", 3, 9, 5, count, rate, 144_300_000, 7, sample_format,
         6, TimeDomain.HOST_MONOTONIC, TimestampOrigin.HOST_OBSERVATION,
-        Discontinuity.START, 0, memoryview(payload),
+        discontinuity, 0, memoryview(payload),
     )
 
 
@@ -73,6 +76,40 @@ class UDPProtocolTests(unittest.TestCase):
             self.assertFalse(received[0].startswith(b"SDBU"))
         finally:
             destination.stop(); receiver.close()
+
+    def test_qmap_linrad_exact_layout_transform_and_aggregation(self):
+        encoder = QMAPEncoder(clock_ms=lambda: 12_345)
+        first = encoder.encode(_block(count=400, rate=96_000))
+        self.assertEqual(len(first), 1)
+        self.assertEqual(len(first[0]), QMAP_PACKET_BYTES)
+        decoded = parse_qmap_datagram(first[0])
+        self.assertAlmostEqual(decoded.center_frequency_mhz, 144.3)
+        self.assertEqual(decoded.milliseconds, 12_345)
+        self.assertEqual(decoded.block_sequence, 0)
+        self.assertEqual(decoded.receiver_count, 1)
+        original = np.arange(400 * 2, dtype=np.int16).reshape(-1, 2)[:348].astype(np.int32)
+        sign = 1 - 2 * (np.arange(348) & 1)
+        expected = original.copy()
+        expected[:, 0] *= sign
+        expected[:, 1] *= -sign
+        actual = np.frombuffer(decoded.payload, dtype="<i2").reshape(-1, 2)
+        np.testing.assert_array_equal(actual, expected.astype(np.int16))
+
+        second = encoder.encode(_block(count=296, rate=96_000, discontinuity=Discontinuity.NONE))
+        self.assertEqual(len(second), 1)
+        self.assertEqual(parse_qmap_datagram(second[0]).block_sequence, 1)
+        self.assertEqual(encoder.pending_samples, 0)
+
+    def test_qmap_rejects_wrong_rate_and_resets_partial_packet(self):
+        encoder = QMAPEncoder(clock_ms=lambda: 0)
+        with self.assertRaisesRegex(ValueError, "96000"):
+            encoder.encode(_block(count=348))
+        self.assertEqual(encoder.encode(_block(count=100, rate=96_000)), [])
+        reset = _block(count=348, rate=96_000, discontinuity=Discontinuity.SOURCE_LOSS)
+        self.assertEqual(len(encoder.encode(reset)), 1)
+        self.assertEqual(encoder.discarded_samples, 100)
+        with self.assertRaises(ValueError):
+            parse_qmap_datagram(b"short")
 
 
 class NativeControlTests(unittest.TestCase):

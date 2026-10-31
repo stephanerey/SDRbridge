@@ -1,5 +1,15 @@
 # Historique des versions
 
+## 0.5.0 — publiée le 31 octobre 2026
+
+- transport QMAP 0.6 compatible avec l'entrée Linrad UDP sur le port 50004 ;
+- profil DSP séparé `qmap-linrad-96k`, resampling filtré vers 96 kS/s et trames fixes de 1416 octets ;
+- correction de convention spectrale QMAP `(-1)^n * conj(I+jQ)` ;
+- destinations UDP configurables individuellement afin de servir simultanément SDR++ et QMAP ;
+- sélection du transport QMAP dans l'interface et métriques de destination ;
+- 51 tests applicatifs verts et smoke matériel RSP1A avec données IQ QMAP non nulles ;
+- paquet portable 0.5.0 vérifié ; l'installateur graphique n'est pas produit sur la machine de build faute d'Inno Setup.
+
 ## 0.4.0 — publiée le 15 octobre 2026
 
 - catalogue SoapySDR filtré avec modèle et numéro de série dans la liste des sources ;

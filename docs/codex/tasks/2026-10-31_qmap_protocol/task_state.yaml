@@ -1,0 +1,17 @@
+objective: "Ajouter et installer un transport QMAP 0.6/Linrad UDP RX dans SDRbridge"
+status: installed_hardware_verified
+constraints:
+  - "RX uniquement; aucune commande RF depuis QMAP"
+  - "Conserver simultanément la destination SDR++ SDBU v2"
+  - "Ne pas publier ni pousser automatiquement"
+decisions:
+  transport: qmap_linrad
+  profile: qmap-linrad-96k
+  endpoint: 127.0.0.1:50004
+  framing: "24-byte little-endian Linrad header + 348 CS16 IQ = 1416 bytes"
+evidence:
+  tests: "51/51 unittest OK"
+  native_build: "extio_smoke.exe rebuilt; full suite green"
+  packaged_smoke: "release-v0.5 + RSP1A: 1416 bytes, 144.3 MHz, nrx=1, IQ non-zero"
+remaining:
+  - "Recette visuelle QMAP 0.6 avec Monitor actif"

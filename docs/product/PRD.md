@@ -20,7 +20,7 @@ Le produit doit être utilisable sans Nexus et sans service cloud. Le logiciel e
 - Resampling filtré et conversions mutualisés par source et paramètres effectifs.
 - Profils RF, presets complets, reconnexion/watchdog, simulation, diagnostics, enregistrement/replay cible SigMF.
 - Accès distant via VPN ; découverte mDNS facultative ; configuration manuelle toujours possible.
-- Qualification : ANTRACK, HDSDR, SDR++ et client Python de référence. QMAP reste une extension différée faute de version/interface identifiées ; aucune compatibilité QMAP annoncée en V1.
+- Qualification : ANTRACK, HDSDR, SDR++, QMAP 0.6/Linrad UDP et client Python de référence. Pour QMAP, le protocole et la simulation sont couverts ; la recette visuelle sur le binaire installé reste distincte.
 
 Hors V1 : TX, bail de contrôle client, DDC par client, cohérence de phase entre SDR, exposition publique Internet et contrôle graphique distant. Le multi-SDR simultané ne sera avancé en V1 que par décision explicite.
 
@@ -75,7 +75,7 @@ S1 : [Comportements et écrans](../specs/01_BEHAVIOR_UI.md). S2 : [Contrats du c
 
 ## 5. Compatibilité et performance
 
-Préserver les chemins locaux existants ANTRACK et HDSDR avant de prétendre à une compatibilité réseau de ces logiciels. SDR++ et QMAP nécessitent des protocoles et versions identifiés ; le protocole natif ne les rend pas automatiquement compatibles. WSJT-X relève d'un parcours audio externe, pas d'une promesse d'entrée IQ native.
+Préserver les chemins locaux existants ANTRACK et HDSDR avant de prétendre à une compatibilité réseau de ces logiciels. SDR++ utilise SDBU v2 ou raw CS16 ; QMAP 0.6 utilise son profil Linrad UDP séparé à 96 kS/s. Le protocole natif ne les rend pas automatiquement compatibles. WSJT-X relève d'un parcours audio externe, pas d'une promesse d'entrée IQ native.
 
 Un profil de test simulé est proposé : source 2 MS/s CS16, sorties 192 et 96 kS/s, cinq lecteurs locaux, deux destinations natives unicast. Il démontre des invariants ; il n'établit pas la capacité de la machine réelle.
 

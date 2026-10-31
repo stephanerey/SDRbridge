@@ -562,6 +562,7 @@ class BridgeWindow(QtWidgets.QMainWindow):
         self.destination_transport = QtWidgets.QComboBox()
         self.destination_transport.addItem("SDR++ raw CS16", "sdrpp_raw_cs16")
         self.destination_transport.addItem("SDBU v2", "sdbu_v2")
+        self.destination_transport.addItem("QMAP / Linrad 96 kS/s", "qmap_linrad")
         self.add_destination_button = QtWidgets.QPushButton("Add client")
         self.add_destination_button.clicked.connect(self._add_udp_destination)
         self.remove_destination_button = QtWidgets.QPushButton("Remove")
@@ -569,7 +570,7 @@ class BridgeWindow(QtWidgets.QMainWindow):
         destination_controls.addWidget(QtWidgets.QLabel("Endpoint")); destination_controls.addWidget(self.destination_edit, 1)
         destination_controls.addWidget(self.destination_transport); destination_controls.addWidget(self.add_destination_button); destination_controls.addWidget(self.remove_destination_button)
         layout.addLayout(destination_controls)
-        layout.addWidget(QtWidgets.QLabel("SDR++ raw clients are passive: they receive the selected UDP destination but do not create a confirmed control session."))
+        layout.addWidget(QtWidgets.QLabel("SDR++ and QMAP clients are passive UDP destinations. QMAP uses the Linrad format at 96 kS/s (usual port: 50004)."))
         if self.runtime is None or not hasattr(self.runtime, "add_udp_destination"):
             self.add_destination_button.setEnabled(False); self.remove_destination_button.setEnabled(False)
         network_enabled = bool(getattr(self.runtime, "native_control", None))

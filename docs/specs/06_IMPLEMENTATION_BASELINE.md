@@ -67,7 +67,7 @@ Jeton LAN : secret aléatoire >=32 octets, stocké par l'opérateur dans un fich
 
 **HDSDR :** ExtIO Win32, callbacks et buffers possédés, fréquence/taux effectifs actualisés et notifications ExtIO appropriées. Ne pas copier une DLL dans l'installation existante sans autorisation.
 
-**QMAP :** version/interface non identifiées ; pas d'adaptateur inventé. Reste une extension de qualification différée, explicitement visible dans la matrice. Ce point ne bloque pas la réalisation du reste de V1, mais interdit l'étiquette « QMAP compatible ».
+**QMAP 0.6 :** adaptateur Linrad UDP identifié et implémenté en profil séparé `qmap-linrad-96k` : CS16 little-endian, 96 kS/s, 348 IQ par datagramme fixe de 1416 octets, port loopback 50004 par défaut. Le header Linrad de 24 octets et la transformation spectrale `(-1)^n * conj()` possèdent des vecteurs de test. QMAP reste passif et sans autorité RF. La qualification protocolaire/simulée ne remplace pas la recette visuelle sur le binaire installé.
 
 ## 6. Persistance, capture et replay
 

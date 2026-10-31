@@ -16,6 +16,7 @@ DEFAULT_PROFILES = (
     StreamProfile("native-cf32-192k", 1, 192_000, SampleFormat.CF32, "sdbu_v2", name="Natif CF32 192 kS/s"),
     StreamProfile("native-cs16-192k", 1, 192_000, SampleFormat.CS16, "sdbu_v2", name="Natif CS16 192 kS/s"),
     StreamProfile("sdrpp-raw-192k", 1, 192_000, SampleFormat.CS16, "sdrpp_raw_cs16", name="SDR++ raw 192 kS/s"),
+    StreamProfile("qmap-linrad-96k", 1, 96_000, SampleFormat.CS16, "qmap_linrad", name="QMAP / Linrad 96 kS/s"),
 )
 
 

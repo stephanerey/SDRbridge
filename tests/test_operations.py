@@ -76,6 +76,18 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_app_config(path)
 
+    def test_mixed_udp_destination_transports_round_trip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "app.json"
+            config = json.loads(json.dumps(DEFAULT_CONFIG))
+            config["udp_destinations"] = [
+                {"endpoint": "127.0.0.1:7355", "transport": "sdbu_v2"},
+                {"endpoint": "127.0.0.1:50004", "transport": "qmap_linrad"},
+            ]
+            save_app_config(path, config)
+            _, loaded = load_app_config(path)
+            self.assertEqual(loaded["udp_destinations"], config["udp_destinations"])
+
     def test_atomic_failure_keeps_previous_file(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "app.json"

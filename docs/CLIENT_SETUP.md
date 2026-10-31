@@ -1,6 +1,6 @@
-# Connexion des clients à SDRbridge 0.4
+# Connexion des clients à SDRbridge 0.5
 
-Un lancement direct de `SDR_Bridge.exe` sans argument est simulé et n’ouvre aucun matériel. Le raccourci installé **SDRbridge** charge en revanche `config.soapy-sdrpp.json` afin d’afficher les SDR détectés, sans démarrer automatiquement la réception. Depuis `E:\PLDesign\SDRbridge`, la simulation explicite reste disponible avec :
+Un lancement direct de `SDR_Bridge.exe` sans argument est simulé et n’ouvre aucun matériel. Le raccourci installé **SDRbridge** charge en revanche `config.soapy-sdrpp.json` afin d’afficher les SDR détectés, sans démarrer automatiquement la réception. Une installation locale peut épingler son `device_id` et activer `auto_start`, comme sur le poste de qualification RSP1A. Depuis `C:\Projets\SDRBridge`, la simulation explicite reste disponible avec :
 
 ```powershell
 .\.venv\Scripts\python.exe -m sdr_bridge --source simulated --headless --auto-start
@@ -18,12 +18,25 @@ Dans SDR++, ajouter la source **Network** et choisir l’entrée UDP locale sur 
 
 Une source native **SDRbridge SDBU v2** est aussi installée pour SDR++ 1.3.0 sous `E:\Radio\sdrpp_windows_x64_1.3.0\sdrpp_windows_x64`. Elle écoute par défaut `127.0.0.1:7355`, valide l'en-tête SDBU v2 de 72 octets, accepte CS16/CF32 et applique au DSP de SDR++ le taux et la fréquence centrale annoncés. Pour ce chemin, utiliser `--udp-transport sdbu_v2`; `config.soapy-sdrpp.json` prépare l’énumération Soapy et la destination SDBU. La source reste en lecture seule : une syntonisation dans SDR++ ne pilote jamais le SDR. Le module, la DLL x64 précompilée, ses scripts de build/retour arrière et ses preuves sont versionnés dans `clients/sdrpp_sdbu_source`.
 
+## QMAP 0.6
+
+SDRbridge 0.5 fournit un transport QMAP natif compatible avec l’entrée UDP Linrad. Il resample le flux maître vers `96000 S/s`, applique la convention spectrale attendue par QMAP et émet des datagrammes fixes de 1416 octets vers `127.0.0.1:50004`. La configuration fournie active simultanément SDR++ sur `7355` et QMAP sur `50004`.
+
+Dans QMAP, onglet **I/O devices**, sélectionner **Input from Linrad or SDR Console**, garder le port UDP `50004`, puis cliquer **Monitor**. Ne régler ni `2000000` ni un format IQ dans QMAP : son entrée Linrad attend toujours le profil 96 kS/s fourni par SDRbridge. La fréquence centrale est transmise dans chaque datagramme. Ce chemin reste RX uniquement ; QMAP ne pilote jamais le SDR.
+
+Pour un essai isolé en simulation :
+
+```powershell
+.\.venv\Scripts\python.exe -m sdr_bridge --source simulated --auto-start `
+  --udp 127.0.0.1:50004 --udp-transport qmap_linrad
+```
+
 Le champ **Bandwidth** est indépendant du Sampling : il sélectionne le filtre RF SDRplay. SDRbridge ne propose que les largeurs compatibles avec le Sampling courant (par exemple, à `2 MS/s`, les filtres 5–8 MHz sont masqués). Changer Bandwidth filtre le spectre sans changer le débit IQ ; changer Sampling reconfigure le flux maître.
 
 Plusieurs clients UDP peuvent être servis simultanément. Depuis l’onglet **Outputs & Clients**, ajouter par exemple `127.0.0.1:7356` avec le transport **SDR++ raw CS16** ; conserver la première destination sur `7355`, puis configurer chaque instance SDR++ sur son port respectif. En ligne de commande, répéter `--udp` :
 
 ```powershell
-.\release-v0.4\SDR_Bridge\SDR_Bridge.exe --config .\config.soapy-sdrpp.json `
+.\release-v0.5\SDR_Bridge\SDR_Bridge.exe --config .\config.soapy-sdrpp.json `
   --udp 127.0.0.1:7355 --udp 127.0.0.1:7356 `
   --udp-transport sdrpp_raw_cs16
 ```
@@ -34,9 +47,9 @@ Important : la destination `--udp ... --udp-transport sdrpp_raw_cs16` lit actuel
 
 Pour une destination loopback (`127.0.0.1`), SDRbridge regroupe automatiquement le raw CS16 en datagrammes de 8 Ko afin de limiter la charge UDP à 2 MS/s. Les destinations réseau utilisent le budget conservateur de 1 200 octets pour éviter la fragmentation IP.
 
-Le client natif de diagnostic est `release-v0.4\SDR_Bridge_Native_Client\SDR_Bridge_Native_Client.exe` ou `sdr-bridge-native-client` depuis l’environnement Python. Le protocole SDBU v2 émet un en-tête de 72 octets et reste distinct du flux raw SDR++.
+Le client natif de diagnostic est `release-v0.5\SDR_Bridge_Native_Client\SDR_Bridge_Native_Client.exe` ou `sdr-bridge-native-client` depuis l’environnement Python. Le protocole SDBU v2 émet un en-tête de 72 octets et reste distinct du flux raw SDR++.
 
-Les connecteurs livrés sont sous `release-v0.4\Connectors\SDR++`, `Connectors\HDSDR` et `Connectors\ANTRACK`. Les dossiers SDR++ et HDSDR contiennent chacun la DLL dans `bin` et les scripts réversibles `scripts\install.ps1` / `scripts\uninstall.ps1`. Leur installation dans un logiciel tiers reste une action explicite de l’utilisateur et n’est jamais exécutée par le build de SDRbridge.
+Les connecteurs livrés sont sous `release-v0.5\Connectors\SDR++`, `Connectors\HDSDR` et `Connectors\ANTRACK`. Les dossiers SDR++ et HDSDR contiennent chacun la DLL dans `bin` et les scripts réversibles `scripts\install.ps1` / `scripts\uninstall.ps1`. Leur installation dans un logiciel tiers reste une action explicite de l’utilisateur et n’est jamais exécutée par le build de SDRbridge.
 
 ## Deux instances pour deux SDR
 
@@ -60,4 +73,4 @@ Les journaux sont indépendants sous `%LOCALAPPDATA%\SDRbridge\logs` pour l’in
 
 HDSDR 2.81a, ANTRACK 2.1.0 et SDR++ 1.3.0 doivent être testés sur les installations réellement présentes. Les tests locaux vérifient l’ExtIO Win32, le shim ANTRACK, la source SDR++ SDBU v2 et le format raw ; ils ne constituent pas à eux seuls une qualification complète de ces logiciels tiers.
 
-QMAP/Linrad TIMF2 reste différé. WSJT-X doit passer par une chaîne audio aval, pas par un flux IQ direct.
+QMAP 0.6 est qualifié au niveau du protocole Linrad UDP et des tests simulés. La validation visuelle avec l’installation QMAP réelle reste à effectuer en cliquant **Monitor**.

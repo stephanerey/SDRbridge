@@ -51,10 +51,23 @@
     "udp_destination": {"type": ["string", "null"], "pattern": "^[^:]+:[0-9]+$"},
     "udp_destinations": {
       "type": "array",
-      "items": {"type": "string", "pattern": "^[^:]+:[0-9]+$"},
+      "items": {
+        "oneOf": [
+          {"type": "string", "pattern": "^[^:]+:[0-9]+$"},
+          {
+            "type": "object",
+            "required": ["endpoint", "transport"],
+            "properties": {
+              "endpoint": {"type": "string", "pattern": "^[^:]+:[0-9]+$"},
+              "transport": {"enum": ["sdbu_v2", "sdrpp_raw_cs16", "qmap_linrad"]}
+            },
+            "additionalProperties": false
+          }
+        ]
+      },
       "uniqueItems": true
     },
-    "udp_transport": {"enum": ["sdbu_v2", "sdrpp_raw_cs16"]},
+    "udp_transport": {"enum": ["sdbu_v2", "sdrpp_raw_cs16", "qmap_linrad"]},
     "log_level": {"enum": ["DEBUG", "INFO", "WARNING", "ERROR"]}
   },
   "additionalProperties": false

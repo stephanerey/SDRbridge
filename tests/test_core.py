@@ -11,6 +11,7 @@ from sdr_bridge.control import ControlServer
 from sdr_bridge.model import RadioConfig
 from sdr_bridge.ring import RingReader, SharedIQRing
 from sdr_bridge.source import SimulatedSource
+from sdr_bridge.udp import parse_qmap_datagram
 
 
 class RingTests(unittest.TestCase):
@@ -54,15 +55,25 @@ class BridgeTests(unittest.TestCase):
         config["radio"] = deepcopy(DEFAULT_CONFIG["radio"])
         config["source"] = "simulated"
         runtime = AppRuntime(config)
+        qmap_receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        qmap_receiver.bind(("127.0.0.1", 0))
+        qmap_receiver.settimeout(3)
         try:
             runtime.start(start_rx=True)
             runtime.add_udp_destination("127.0.0.1:7356", "sdrpp_raw_cs16")
-            runtime.add_udp_destination("127.0.0.1:7357", "sdrpp_raw_cs16")
-            self.assertEqual([item["destination"] for item in runtime.udp_destinations_snapshot()], ["127.0.0.1:7356", "127.0.0.1:7357"])
+            qmap_endpoint = f"127.0.0.1:{qmap_receiver.getsockname()[1]}"
+            runtime.add_udp_destination(qmap_endpoint, "qmap_linrad")
+            packet = qmap_receiver.recvfrom(2000)[0]
+            decoded = parse_qmap_datagram(packet)
+            self.assertAlmostEqual(decoded.center_frequency_mhz, 144.3)
+            snapshots = runtime.udp_destinations_snapshot()
+            self.assertEqual([item["transport"] for item in snapshots], ["sdrpp_raw_cs16", "qmap_linrad"])
+            self.assertEqual(snapshots[1]["last_sample_rate_sps"], 96_000)
             runtime.remove_udp_destination("127.0.0.1:7356")
-            self.assertEqual([item["destination"] for item in runtime.udp_destinations_snapshot()], ["127.0.0.1:7357"])
+            self.assertEqual([item["destination"] for item in runtime.udp_destinations_snapshot()], [qmap_endpoint])
         finally:
             runtime.close()
+            qmap_receiver.close()
 
     def setUp(self):
         self.bridge = SDRBridge(SimulatedSource(block_samples=2048), RadioConfig(), block_samples=2048, slots=16)

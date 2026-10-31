@@ -7,6 +7,8 @@ import struct
 import threading
 import time
 
+import numpy as np
+
 from .model import Discontinuity, IQBlock, SampleFormat, TimeDomain, TimestampOrigin
 
 HEADER = struct.Struct(">4sBBHHBBIQQQQIIQII")
@@ -19,6 +21,14 @@ LOOPBACK_RAW_DATAGRAM_BYTES = 8192
 # returns short blocks (the ring would otherwise overrun before the first
 # packet is released).
 LOOPBACK_RAW_BUFFER_BLOCKS = 8
+
+# QMAP 0.6 consumes the historic Linrad UDP structure directly.  The C/C++
+# layout is fixed at 24 header bytes followed by 348 interleaved int16 I/Q
+# samples (1392 bytes), for a total of 1416 bytes per datagram.
+QMAP_SAMPLE_RATE_SPS = 96_000
+QMAP_PACKET_SAMPLES = 348
+QMAP_HEADER = struct.Struct("<difiHbc")
+QMAP_PACKET_BYTES = QMAP_HEADER.size + QMAP_PACKET_SAMPLES * SampleFormat.CS16.bytes_per_iq
 
 FLAG_TIME_VALID = 1 << 0
 FLAG_HARDWARE_ORIGIN = 1 << 1
@@ -42,6 +52,96 @@ class NativeDatagram:
     center_frequency_hz: int
     sample_count: int
     payload: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class QMAPDatagram:
+    center_frequency_mhz: float
+    milliseconds: int
+    user_frequency: float
+    sample_pointer: int
+    block_sequence: int
+    receiver_count: int
+    sideband: bytes
+    payload: bytes
+
+
+class QMAPEncoder:
+    """Encode 96 kS/s CS16 into the fixed Linrad datagrams used by QMAP."""
+
+    def __init__(self, *, clock_ms=None):
+        self._clock_ms = clock_ms or (lambda: int(time.time() * 1000))
+        self._pending = bytearray()
+        self._stream_key: tuple[int, int, int] | None = None
+        self._block_sequence = 0
+        self._sample_pointer = 0
+        self._phase = 0
+        self.discarded_samples = 0
+
+    @property
+    def pending_samples(self) -> int:
+        return len(self._pending) // SampleFormat.CS16.bytes_per_iq
+
+    def _reset(self, stream_key: tuple[int, int, int]) -> None:
+        self.discarded_samples += self.pending_samples
+        self._pending.clear()
+        self._stream_key = stream_key
+        self._block_sequence = 0
+        self._sample_pointer = 0
+        self._phase = 0
+
+    def encode(self, block: IQBlock) -> list[bytes]:
+        if block.sample_format is not SampleFormat.CS16:
+            raise ValueError("QMAP/Linrad profile requires CS16")
+        if block.sample_rate_sps != QMAP_SAMPLE_RATE_SPS:
+            raise ValueError("QMAP/Linrad profile requires exactly 96000 S/s")
+        stream_key = (block.epoch, block.center_frequency_hz, block.sample_rate_sps)
+        if (self._stream_key != stream_key
+                or block.discontinuity is not Discontinuity.NONE):
+            self._reset(stream_key)
+
+        pairs = np.frombuffer(block.payload, dtype="<i2").reshape(-1, 2).astype(np.int32)
+        # QMAP's FFT convention is the inverse of the source stream.  The
+        # Linrad-compatible mapping is (-1)^n * conj(I+jQ).
+        sign = 1 - 2 * ((np.arange(block.sample_count, dtype=np.int32) + self._phase) & 1)
+        pairs[:, 0] *= sign
+        pairs[:, 1] *= -sign
+        self._phase = (self._phase + block.sample_count) & 1
+        transformed = np.clip(pairs, -32768, 32767).astype("<i2", copy=False)
+        self._pending.extend(transformed.tobytes())
+
+        packets: list[bytes] = []
+        payload_bytes = QMAP_PACKET_SAMPLES * SampleFormat.CS16.bytes_per_iq
+        while len(self._pending) >= payload_bytes:
+            payload = bytes(self._pending[:payload_bytes])
+            del self._pending[:payload_bytes]
+            header = QMAP_HEADER.pack(
+                block.center_frequency_hz / 1_000_000.0,
+                int(self._clock_ms()) % 86_400_000,
+                0.0,
+                self._sample_pointer,
+                self._block_sequence,
+                1,
+                b"\x00",
+            )
+            packets.append(header + payload)
+            self._sample_pointer = (self._sample_pointer + QMAP_PACKET_SAMPLES) & 0x7FFFFFFF
+            self._block_sequence = (self._block_sequence + 1) & 0xFFFF
+        return packets
+
+
+def parse_qmap_datagram(data: bytes) -> QMAPDatagram:
+    if len(data) != QMAP_PACKET_BYTES:
+        raise ValueError("QMAP/Linrad datagram must contain exactly 1416 bytes")
+    frequency, milliseconds, user_frequency, pointer, sequence, receiver_count, sideband = QMAP_HEADER.unpack_from(data)
+    if receiver_count != 1:
+        raise ValueError("only the single-receiver QMAP/Linrad layout is supported")
+    if not 0 <= milliseconds < 86_400_000:
+        raise ValueError("invalid QMAP/Linrad millisecond field")
+    return QMAPDatagram(
+        frequency, milliseconds, user_frequency, pointer, sequence,
+        receiver_count, sideband, data[QMAP_HEADER.size:],
+    )
 
 
 class SDBUEncoder:
@@ -152,11 +252,12 @@ class UDPDestination:
         multicast_interface: str | None = None,
         multicast_loopback: bool = False,
     ):
-        if transport not in {"sdbu_v2", "sdrpp_raw_cs16"}:
+        if transport not in {"sdbu_v2", "sdrpp_raw_cs16", "qmap_linrad"}:
             raise ValueError("unsupported UDP transport")
         self.destination = destination
         self.transport = transport
         self.encoder = SDBUEncoder(wire_stream_id, max_datagram_bytes)
+        self.qmap_encoder = QMAPEncoder()
         self.max_datagram_bytes = max_datagram_bytes
         self.multicast_interface = multicast_interface
         self.multicast_loopback = multicast_loopback
@@ -293,6 +394,8 @@ class UDPDestination:
                             time.sleep(0)
                     if self.transport == "sdbu_v2":
                         packets = self.encoder.encode(block)
+                    elif self.transport == "qmap_linrad":
+                        packets = self.qmap_encoder.encode(block)
                     else:
                         raw_pending.extend(bytes(block.payload))
                         packets = []
@@ -336,6 +439,8 @@ class UDPDestination:
             "last_error": self.last_error,
             "last_center_frequency_hz": self.last_center_frequency_hz,
             "last_sample_rate_sps": self.last_sample_rate_sps,
+            "pending_samples": self.qmap_encoder.pending_samples if self.transport == "qmap_linrad" else 0,
+            "discarded_samples": self.qmap_encoder.discarded_samples if self.transport == "qmap_linrad" else 0,
         }
 
 
@@ -383,3 +488,38 @@ class UDPStreamer:
             block = self.reader.read(.25)
             if block:
                 self.destination.enqueue(block)
+
+
+class QMAPStreamer:
+    """Subscribe to the shared 96 kS/s DSP profile and emit Linrad UDP."""
+
+    def __init__(self, bridge, destination: tuple[str, int]):
+        self.bridge = bridge
+        self.destination = UDPDestination(
+            destination,
+            wire_stream_id=1,
+            transport="qmap_linrad",
+        )
+        self._profile_token: str | None = None
+
+    @property
+    def sent_packets(self) -> int:
+        return self.destination.sent_packets
+
+    def start(self) -> None:
+        if self._profile_token is not None:
+            return
+        self.destination.start()
+        try:
+            self._profile_token, _ = self.bridge.subscribe_profile(
+                "qmap-linrad-96k", 1, self.destination.enqueue,
+            )
+        except Exception:
+            self.destination.stop()
+            raise
+
+    def stop(self) -> None:
+        if self._profile_token is not None:
+            self.bridge.unsubscribe_profile(self._profile_token)
+            self._profile_token = None
+        self.destination.stop()

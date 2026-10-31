@@ -12,7 +12,13 @@ The global header contains magic `SDBR`, protocol version, slot count, payload s
 
 Readers maintain independent cursors. If a cursor is older than `latest_sequence - slot_count + 1`, the reader counts the skipped blocks and resumes at the oldest retained block.
 
-## Experimental UDP/LAN
+## SDBU v2
 
-UDP packets use magic `SDBU`, version 1, S16LE format ID 1, block sequence, timestamp, configuration revision, fragment index and fragment count. There is no retransmission in the real-time profile. This is an SDR_Bridge protocol; application-specific QMAP/Linrad compatibility profiles still require validation.
+UDP packets use magic `SDBU`, version 2 and a 72-byte big-endian header followed by CS16 or CF32 little-endian samples. There is no retransmission in the real-time profile.
+
+## QMAP / Linrad UDP
+
+Transport name: `qmap_linrad`. SDRbridge first uses the immutable `qmap-linrad-96k` CS16 profile to resample the selected source to exactly 96,000 complex samples/s. Framing is post-DSP and therefore does not alter SDBU or SDR++ destinations.
+
+Every little-endian datagram is exactly 1416 bytes: `double center_frequency_mhz`, `int32 milliseconds`, `float user_frequency`, `int32 sample_pointer`, `uint16 block_sequence`, `int8 receiver_count=1`, `char sideband`, then 348 interleaved `int16 I,Q` pairs. Before framing, samples are mapped with `(-1)^n * conj(I+jQ)` to match QMAP's spectral convention. Partial packets are discarded across an epoch, frequency, rate or discontinuity boundary. Default QMAP port: UDP `50004` on loopback.
 

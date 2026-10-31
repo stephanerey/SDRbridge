@@ -1,4 +1,4 @@
-# État réel — SDRbridge 0.4.0 — 15 octobre 2026
+# État réel — SDRbridge 0.5.0 — 31 octobre 2026
 
 ## Implémenté
 
@@ -8,12 +8,16 @@
 - Backend Soapy générique intégré au paquet Windows via la couche ctypes, avec catalogue filtré par backend, modèle et numéro de série.
 - Inventaire réel : RSPdx `2001077942`, clone RSP1 `0000000001` et backend MSi2500 ; les périphériques audio Pothos sont exclus.
 - Instances nommées : configuration, logs et rings isolés ; `--port-offset` décale les ports de contrôle et UDP ; `--device-id` sélectionne explicitement le récepteur.
-- Interface Qt 0.4.0 affichant la liste des SDR de la source Soapy et le nom de l'instance.
+- Interface Qt 0.5.0 affichant la liste des SDR de la source Soapy, le nom de l'instance et la destination QMAP/Linrad.
 - Paquet portable et installateur `SDRbridge_Setup_0.4.0.exe`, construits à partir de la version de `pyproject.toml`.
+- Transport QMAP 0.6/Linrad UDP RX : resampling mutualisé 96 kS/s, trames fixes 1416 octets, fréquence centrale et convention spectrale QMAP ; coexistence configurée avec SDR++.
+- Paquet portable 0.5.0 construit sous `release-v0.5`; Inno Setup étant absent de la machine, aucun nouvel installateur `.exe` n'a été produit.
 
 ## Preuves obtenues
 
 - 48/48 tests applicatifs verts.
+- 51/51 tests applicatifs verts après ajout QMAP, dont vecteur de trame, agrégation, frontière de discontinuité et réception UDP intégrée à partir d'une source 2 MS/s simulée.
+- Smoke du paquet 0.5.0 vert avec le RSP1A `2236027C98` : datagramme QMAP de 1416 octets, centre 144,3 MHz, `nrx=1`, données IQ non nulles.
 - Chaque SDR reçoit seul via Soapy à environ 1,92 MS/s, sans drop ni erreur.
 - Deux processus simultanés sont verts avec le RSPdx natif (≈1,910 MS/s) et le RSP1 Soapy (≈1,934 MS/s), zéro drop/erreur sur 10 s.
 - Le paquet portable énumère les deux séries physiques et termine proprement en mode CLI sans console.
@@ -34,3 +38,4 @@
 2. Mettre à jour ou reconstruire SoapySDRPlay pour l'API 3.15, puis retester deux processus Soapy simultanés.
 3. Rejouer le smoke simulé au repos, le run de 10 minutes, puis seulement l'endurance de 60 minutes.
 4. Pour chaque prochaine version, reconstruire et requalifier l'installateur avant de le joindre à la release GitHub correspondante.
+5. Valider visuellement QMAP 0.6 avec **Monitor** actif sur le port 50004 et le RSP1A réel.
