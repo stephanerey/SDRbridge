@@ -11,7 +11,7 @@ from sdr_bridge.control import ControlServer
 from sdr_bridge.model import RadioConfig
 from sdr_bridge.ring import RingReader, SharedIQRing
 from sdr_bridge.source import SimulatedSource
-from sdr_bridge.udp import parse_qmap_datagram
+from sdr_bridge.udp import parse_datagram, parse_qmap_datagram
 
 
 class RingTests(unittest.TestCase):
@@ -47,6 +47,63 @@ class RingTests(unittest.TestCase):
 
 
 class BridgeTests(unittest.TestCase):
+    def test_gui_runtime_can_start_disconnected_for_device_discovery(self):
+        config = deepcopy(DEFAULT_CONFIG)
+        config["source"] = "simulated"
+        config["network"] = deepcopy(DEFAULT_CONFIG["network"])
+        config["network"]["legacy_control_port"] = 0
+        config["network"]["control_port"] = 0
+        runtime = AppRuntime(config)
+        runtime.bridge.source.enumerate = lambda: []
+        try:
+            runtime.start(start_rx=False)
+            self.assertEqual(runtime.bridge.state.value, "IDLE")
+            self.assertFalse(runtime.bridge.running)
+        finally:
+            runtime.close()
+
+    def test_three_udp_destinations_have_effective_independent_rates(self):
+        config = deepcopy(DEFAULT_CONFIG)
+        config["network"] = deepcopy(DEFAULT_CONFIG["network"])
+        config["network"]["legacy_control_port"] = 0
+        config["network"]["control_port"] = 0
+        config["radio"] = deepcopy(DEFAULT_CONFIG["radio"])
+        config["radio"]["sample_rate_sps"] = 2_000_000
+        config["source"] = "simulated"
+        receivers = []
+        runtime = AppRuntime(config)
+        try:
+            runtime.start(start_rx=True)
+            expected_rates = (2_000_000, 192_000, 1_000_000)
+            endpoints = []
+            for rate in expected_rates:
+                receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                receiver.bind(("127.0.0.1", 0))
+                receiver.settimeout(4)
+                receivers.append(receiver)
+                endpoint = f"127.0.0.1:{receiver.getsockname()[1]}"
+                endpoints.append(endpoint)
+                runtime.add_udp_destination(endpoint, "sdbu_v2", rate)
+
+            decoded = [parse_datagram(receiver.recvfrom(9000)[0]) for receiver in receivers]
+            self.assertEqual(tuple(item.sample_rate_sps for item in decoded), expected_rates)
+            snapshots = runtime.udp_destinations_snapshot()
+            self.assertEqual(tuple(item["configured_sample_rate_sps"] for item in snapshots), expected_rates)
+            self.assertTrue(all(item["datagram_bytes"] == 8192 for item in snapshots))
+            self.assertTrue(all(len(item.payload) + 72 <= 8192 for item in decoded))
+            self.assertEqual(len(runtime.bridge.status()["pipelines"]), 3)
+
+            runtime.update_udp_destination(endpoints[1], "sdbu_v2", 1_000_000, 1200, 64)
+            updated = runtime.udp_destinations_snapshot()[1]
+            self.assertEqual(updated["configured_sample_rate_sps"], 1_000_000)
+            self.assertEqual(updated["datagram_bytes"], 1200)
+            self.assertEqual(updated["queue_blocks"], 64)
+            self.assertEqual(len(runtime.bridge.status()["pipelines"]), 2)
+        finally:
+            runtime.close()
+            for receiver in receivers:
+                receiver.close()
+
     def test_runtime_supports_multiple_udp_destinations(self):
         config = deepcopy(DEFAULT_CONFIG)
         config["network"] = deepcopy(DEFAULT_CONFIG["network"])

@@ -1,5 +1,18 @@
 # Historique des versions
 
+## 0.6.0 — en développement
+
+- source fichier IQ WAV/RF64 pour les enregistrements HDSDR et SDR++, en stéréo I/Q `uint8`, `int16`, `int32` ou `float32` ;
+- sélection du fichier par l'explorateur Windows depuis la liste des sources, démarrage automatique de la lecture, boucle optionnelle et retour au SDR sans relancer l'application ;
+- démarrage de l'interface en mode découverte même lorsqu'aucun SDR n'est encore connecté ;
+- identification visible de la source fichier, lecture temps réel, boucle optionnelle et fréquence centrale extraite du bloc HDSDR `auxi`, du nom ou explicitement configurée ;
+- débit de sortie indépendant par destination UDP, sans suréchantillonnage, avec pipeline de rééchantillonnage mutualisé entre destinations équivalentes ;
+- ajout et modification dans l'interface du débit, de la taille des datagrammes et de la profondeur de file de chaque destination ;
+- datagrammes loopback de 8192 octets par défaut, maintien de 1200 octets sur le LAN et paramètres QMAP fixes à 96 kS/s / 1416 octets ;
+- chemin direct sans conversion `CS16 -> complex64 -> CS16` pour les sorties au débit source et suppression de l'attente active du pacing SDR++ ;
+- blocs de traitement Soapy, natifs et fichier portés à 16384 échantillons par défaut pour conserver 2 MS/s avec les trois sorties de référence ;
+- 60 tests applicatifs, dont le démarrage sans SDR, la permutation SDR/fichier et trois sorties simultanées à 2 MS/s, 192 kS/s et 1 MS/s.
+
 ## 0.5.0 — publiée le 31 octobre 2026
 
 - transport QMAP 0.6 compatible avec l'entrée Linrad UDP sur le port 50004 ;

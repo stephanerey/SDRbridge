@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 import queue
 import socket
 import struct
@@ -9,7 +10,7 @@ import time
 
 import numpy as np
 
-from .model import Discontinuity, IQBlock, SampleFormat, TimeDomain, TimestampOrigin
+from .model import Discontinuity, IQBlock, SampleFormat, StreamProfile, TimeDomain, TimestampOrigin
 
 HEADER = struct.Struct(">4sBBHHBBIQQQQIIQII")
 MAGIC = b"SDBU"
@@ -17,6 +18,7 @@ VERSION = 2
 HEADER_BYTES = 72
 DEFAULT_DATAGRAM_BYTES = 1200
 LOOPBACK_RAW_DATAGRAM_BYTES = 8192
+MAX_UDP_DATAGRAM_BYTES = 65_507
 # Keep the prefill below the 64-slot ring capacity even when a native driver
 # returns short blocks (the ring would otherwise overrun before the first
 # packet is released).
@@ -254,6 +256,10 @@ class UDPDestination:
     ):
         if transport not in {"sdbu_v2", "sdrpp_raw_cs16", "qmap_linrad"}:
             raise ValueError("unsupported UDP transport")
+        if not 4 <= int(max_datagram_bytes) <= MAX_UDP_DATAGRAM_BYTES:
+            raise ValueError("UDP datagram size must be between 4 and 65507 bytes")
+        if transport == "sdbu_v2" and max_datagram_bytes <= HEADER_BYTES:
+            raise ValueError("SDBU datagram size must exceed its header")
         self.destination = destination
         self.transport = transport
         self.encoder = SDBUEncoder(wire_stream_id, max_datagram_bytes)
@@ -262,6 +268,7 @@ class UDPDestination:
         self.multicast_interface = multicast_interface
         self.multicast_loopback = multicast_loopback
         self._queue: queue.Queue[IQBlock] = queue.Queue(maxsize=queue_blocks)
+        self.queue_blocks = int(queue_blocks)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self.sent_packets = 0
@@ -367,9 +374,11 @@ class UDPDestination:
                     self.last_center_frequency_hz = block.center_frequency_hz
                     self.last_sample_rate_sps = block.sample_rate_sps
                     if self.transport == "sdrpp_raw_cs16":
-                        if self._raw_rate_sps != block.sample_rate_sps:
+                        if (self._raw_rate_sps != block.sample_rate_sps
+                                or block.discontinuity is not Discontinuity.NONE):
                             self._raw_next_deadline = None
                             self._raw_rate_sps = block.sample_rate_sps
+                            self._raw_prefill_started = None
                         if (raw_pending and (raw_pending_rate != block.sample_rate_sps
                                 or block.discontinuity is not Discontinuity.NONE)):
                             # Never bridge a reconfiguration/epoch boundary
@@ -385,13 +394,12 @@ class UDPDestination:
                         raw_pending_rate = block.sample_rate_sps
                         if self._raw_next_deadline is None:
                             self._raw_next_deadline = time.perf_counter()
-                        while True:
-                            remaining = self._raw_next_deadline - time.perf_counter()
-                            if remaining <= 0:
-                                break
-                            # Do not use sleep(1 ms): Windows rounds it to a
-                            # ~15.6 ms timer quantum and reintroduces holes.
-                            time.sleep(0)
+                        remaining = self._raw_next_deadline - time.perf_counter()
+                        if remaining > 0:
+                            # Python 3.12 uses a high-resolution waitable timer
+                            # on Windows. Sleeping to the deadline avoids the
+                            # CPU-heavy yield loop previously used here.
+                            self._stop.wait(remaining)
                     if self.transport == "sdbu_v2":
                         packets = self.encoder.encode(block)
                     elif self.transport == "qmap_linrad":
@@ -439,6 +447,8 @@ class UDPDestination:
             "last_error": self.last_error,
             "last_center_frequency_hz": self.last_center_frequency_hz,
             "last_sample_rate_sps": self.last_sample_rate_sps,
+            "datagram_bytes": QMAP_PACKET_BYTES if self.transport == "qmap_linrad" else self.max_datagram_bytes,
+            "queue_blocks": self.queue_blocks,
             "pending_samples": self.qmap_encoder.pending_samples if self.transport == "qmap_linrad" else 0,
             "discarded_samples": self.qmap_encoder.discarded_samples if self.transport == "qmap_linrad" else 0,
         }
@@ -523,3 +533,79 @@ class QMAPStreamer:
             self.bridge.unsubscribe_profile(self._profile_token)
             self._profile_token = None
         self.destination.stop()
+
+
+class ProfileUDPStreamer:
+    """Emit one operator destination from a shared immutable DSP profile."""
+
+    LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+    def __init__(
+        self,
+        bridge,
+        destination: tuple[str, int],
+        *,
+        transport: str,
+        sample_rate_sps: int,
+        datagram_bytes: int | None = None,
+        queue_blocks: int = 32,
+    ):
+        if transport == "qmap_linrad":
+            if int(sample_rate_sps) != QMAP_SAMPLE_RATE_SPS:
+                raise ValueError("QMAP/Linrad rate is fixed at 96000 S/s")
+            datagram_bytes = QMAP_PACKET_BYTES
+        elif datagram_bytes is None:
+            datagram_bytes = LOOPBACK_RAW_DATAGRAM_BYTES if destination[0] in self.LOOPBACK_HOSTS else DEFAULT_DATAGRAM_BYTES
+        self.bridge = bridge
+        self.transport = transport
+        self.sample_rate_sps = int(sample_rate_sps)
+        self.profile = StreamProfile(
+            f"udp-cs16-{self.sample_rate_sps}",
+            1,
+            self.sample_rate_sps,
+            SampleFormat.CS16,
+            transport,
+            name=f"UDP CS16 {self.sample_rate_sps} S/s",
+        )
+        source_block_seconds = bridge.ring.block_samples / bridge.config.sample_rate_sps
+        raw_buffer_blocks = max(2, min(8, math.ceil(0.016 / source_block_seconds)))
+        self.destination = UDPDestination(
+            destination,
+            wire_stream_id=1,
+            transport=transport,
+            max_datagram_bytes=int(datagram_bytes),
+            queue_blocks=int(queue_blocks),
+            raw_buffer_blocks=(
+                raw_buffer_blocks
+                if transport == "sdrpp_raw_cs16" and destination[0] in self.LOOPBACK_HOSTS
+                else 0
+            ),
+        )
+        self._profile_token: str | None = None
+
+    @property
+    def sent_packets(self) -> int:
+        return self.destination.sent_packets
+
+    def start(self) -> None:
+        if self._profile_token is not None:
+            return
+        self.destination.start()
+        try:
+            self._profile_token, _ = self.bridge.subscribe_stream_profile(self.profile, self.destination.enqueue)
+        except Exception:
+            self.destination.stop()
+            raise
+
+    def stop(self) -> None:
+        if self._profile_token is not None:
+            self.bridge.unsubscribe_profile(self._profile_token)
+            self._profile_token = None
+        self.destination.stop()
+
+    def snapshot(self) -> dict:
+        return {
+            **self.destination.snapshot(),
+            "profile_id": self.profile.profile_id,
+            "configured_sample_rate_sps": self.sample_rate_sps,
+        }

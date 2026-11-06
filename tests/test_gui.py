@@ -3,6 +3,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import time
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -79,6 +80,23 @@ class QtInterfaceTests(unittest.TestCase):
         self.window.y_max_spin.setValue(10)
         self.assertEqual(self.window.normal_plot.getViewBox().viewRange()[1], [-130.0, 10.0])
 
+    def test_file_source_is_named_explicitly(self):
+        class NamedFileSource(SimulatedSource):
+            @property
+            def name(self):
+                return "Fichier IQ int16 — SDR++_14.074MHz.wav"
+
+        bridge = SDRBridge(NamedFileSource(block_samples=512), block_samples=512, slots=16)
+        bridge.start()
+        window = BridgeWindow(bridge)
+        try:
+            window.refresh()
+            self.assertEqual(window.connection_label.text(), "Fichier IQ int16 — SDR++_14.074MHz.wav")
+        finally:
+            window.spectrum.close()
+            window.hide()
+            bridge.close()
+
     def test_frequency_edit_is_applied_without_button_and_keeps_rx_running(self):
         before_epoch = self.bridge.epoch
         started = time.perf_counter()
@@ -119,6 +137,37 @@ class QtInterfaceTests(unittest.TestCase):
         labels = [self.window.device_combo.itemText(i) for i in range(self.window.device_combo.count())]
         self.assertIn("soapy/sdrplay: RSPdx — S/N 2001077942", labels)
         self.assertIn("soapy/sdrplay: RSP1 — S/N 0000000001", labels)
+
+    def test_source_dropdown_opens_native_iq_file_picker(self):
+        class RuntimeStub:
+            iq_file_path = None
+
+            def __init__(self):
+                self.selected = None
+
+            def available_sources(self):
+                return [item.to_dict() for item in self_window.bridge.source.enumerate()]
+
+            def select_iq_file(self, path, *, loop=False):
+                self.selected = (path, loop)
+
+            def set_iq_file_loop(self, _enabled):
+                pass
+
+            def close(self):
+                pass
+
+        self_window = self.window
+        runtime = RuntimeStub()
+        self.window.runtime = runtime
+        self.window._refresh_devices()
+        picker_index = self.window.device_combo.findData(self.window.IQ_FILE_PICKER)
+        self.assertGreaterEqual(picker_index, 0)
+        self.assertIn("Fichier IQ", self.window.device_combo.itemText(picker_index))
+        selected_path = r"G:\IQ\HDSDR_144091kHz_RF.wav"
+        with mock.patch.object(QtWidgets.QFileDialog, "getOpenFileName", return_value=(selected_path, "IQ recordings")):
+            self.window.device_combo.setCurrentIndex(picker_index)
+        self.assertEqual(runtime.selected, (selected_path, False))
 
     def test_antrack_style_digit_frequency_control_changes_one_digit(self):
         self.window.frequency_control.set_value_hz(144_300_000)
@@ -169,6 +218,48 @@ class QtInterfaceTests(unittest.TestCase):
         self.assertIsInstance(self.window.compact_button, QtWidgets.QToolButton)
         self.assertIn("Connected", self.window.state_label.text())
         self.assertNotIn("SDRplay direct API", self.window.windowTitle())
+
+    def test_udp_destination_rate_datagram_and_queue_are_editable(self):
+        class RuntimeStub:
+            def __init__(self):
+                self.updated = None
+
+            def udp_destinations_snapshot(self):
+                return [{
+                    "destination": "127.0.0.1:7356", "transport": "sdrpp_raw_cs16",
+                    "configured_sample_rate_sps": 192_000, "datagram_bytes": 8192,
+                    "queue_blocks": 48, "sent_packets": 10, "sent_bytes": 81920,
+                    "dropped_blocks": 0, "socket_errors": 0,
+                    "last_center_frequency_hz": 144_300_000,
+                }]
+
+            def update_udp_destination(self, *args):
+                self.updated = args
+
+            def close(self):
+                pass
+
+        runtime = RuntimeStub()
+        self.window.runtime = runtime
+        self.window.refresh()
+        self.window.destinations_table.selectRow(0)
+        QtWidgets.QApplication.processEvents()
+        self.assertEqual(self.window.destination_rate.value(), 192_000)
+        self.assertEqual(self.window.destination_datagram.value(), 8192)
+        self.assertEqual(self.window.destination_queue.value(), 48)
+        self.window.destination_rate.setValue(1_000_000)
+        self.window.destination_queue.setValue(64)
+        self.window._update_udp_destination()
+        self.assertEqual(runtime.updated, (
+            "127.0.0.1:7356", "sdrpp_raw_cs16", 1_000_000, 8192, 64,
+        ))
+
+        self.window.destination_transport.setCurrentIndex(
+            self.window.destination_transport.findData("qmap_linrad")
+        )
+        self.assertEqual(self.window.destination_rate.value(), 96_000)
+        self.assertEqual(self.window.destination_datagram.value(), 1416)
+        self.assertFalse(self.window.destination_rate.isEnabled())
 
 
 if __name__ == "__main__":

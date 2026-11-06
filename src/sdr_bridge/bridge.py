@@ -15,6 +15,7 @@ from .model import (
     IQBlock,
     LifecycleState,
     RadioConfig,
+    StreamProfile,
 )
 from .profiles import PipelinePool, ProfileRegistry
 from .dsp import design_resampler_filter
@@ -140,6 +141,68 @@ class SDRBridge:
                 self._first_sample_index = 0
             if running:
                 self.start()
+
+    def replace_source(
+        self,
+        source: IQSource,
+        device_id: str,
+        requested_config: RadioConfig | None = None,
+    ) -> RadioConfig:
+        """Replace the active RX source while preserving rings and clients."""
+        with self._command_lock:
+            previous_source = self.source
+            previous_device = self.device_id
+            previous_config = self.config
+            was_running = self.running
+            if self.state not in {LifecycleState.IDLE, LifecycleState.READY}:
+                self.stop()
+            request = replace(
+                requested_config or previous_config,
+                revision=previous_config.revision + 1,
+            )
+            try:
+                source.open(device_id)
+                effective = source.configure(request)
+                if effective.sample_format is not self.ring.sample_format:
+                    raise ValueError(
+                        f"source format {effective.sample_format.value} is incompatible with "
+                        f"the active {self.ring.sample_format.value} ring"
+                    )
+                self._pipelines.reconfigure(effective.sample_rate_sps, effective.sample_format)
+            except Exception:
+                try:
+                    source.close()
+                finally:
+                    if was_running:
+                        self.start()
+                raise
+
+            try:
+                previous_source.close()
+            except Exception:
+                self._pipelines.reconfigure(previous_config.sample_rate_sps, previous_config.sample_format)
+                source.close()
+                self.source = previous_source
+                self.device_id = previous_device
+                if was_running:
+                    with self._lock:
+                        self._state = LifecycleState.IDLE
+                    self.open()
+                    self.start()
+                raise
+
+            self._clear_source_queue()
+            with self._lock:
+                self.source = source
+                self.device_id = device_id
+                self.config = effective
+                self._epoch += 1
+                self._first_sample_index = 0
+                self._state = LifecycleState.READY
+                self._last_error = None
+            if was_running:
+                self.start()
+            return effective
 
     def open(self) -> None:
         with self._command_lock:
@@ -595,6 +658,10 @@ class SDRBridge:
 
     def subscribe_profile(self, profile_id: str, revision: int, callback: Callable[[IQBlock], None]) -> tuple[str, object]:
         profile = self.profiles.get(profile_id, revision)
+        return self._pipelines.subscribe(profile, callback)
+
+    def subscribe_stream_profile(self, profile: StreamProfile, callback: Callable[[IQBlock], None]) -> tuple[str, object]:
+        """Subscribe an operator-owned immutable profile without publishing it globally."""
         return self._pipelines.subscribe(profile, callback)
 
     def unsubscribe_profile(self, token: str) -> bool:

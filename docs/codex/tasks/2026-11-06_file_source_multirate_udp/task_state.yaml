@@ -1,0 +1,23 @@
+objective: "Ajouter une source fichier IQ HDSDR/SDR++, des taux par destination UDP et réduire la charge réseau/CPU"
+status: done
+scope:
+  - "Source WAV/RF64 IQ stéréo en complément du replay SigMF"
+  - "Taux CS16 indépendant par destination UDP, sans upsampling"
+  - "Taille de datagramme et file UDP configurables"
+  - "Édition des paramètres de destination dans la GUI"
+constraints:
+  - "RX uniquement; aucune autorité RF côté client"
+  - "Une seule source active par processus"
+  - "Compatibilité des anciennes configurations UDP"
+  - "Aucune activation matérielle requise pour la preuve"
+decisions:
+  file_formats: "WAV/RF64 stereo: uint8, int16, int32, float32; SigMF conservé"
+  stream_processing: "un pipeline DSP mutualisé par taux/format effectif"
+  loopback_datagram_default: 8192
+proof_plan:
+  - "Vecteurs WAV pour chaque encodage et fréquence issue du nom/surcharge"
+  - "Trois destinations simultanées 2 MHz, 192 kHz et 1 MHz"
+  - "Mesure du nombre de datagrammes 1200 vs 8192 et absence de pertes"
+  - "Tests Qt ajout/modification de destination"
+remaining:
+  - "Aucun pour le périmètre logiciel; build/installation et endurance restent des opérations séparées"

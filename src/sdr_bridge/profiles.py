@@ -104,6 +104,12 @@ class PipelinePool:
     def reconfigure(self, input_rate: int, input_format: SampleFormat) -> None:
         with self._lock:
             existing = [(shared.profile, dict(shared.consumers)) for shared in self._pipelines.values()]
+            # Validate every active profile before mutating the pool. A file
+            # with a narrower rate must not leave half of the destinations
+            # rebuilt if one profile cannot be served.
+            for profile, _consumers in existing:
+                if profile is not None:
+                    profile.validate(int(input_rate))
             self.input_rate = int(input_rate)
             self.input_format = input_format
             self._pipelines.clear()

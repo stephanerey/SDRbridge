@@ -17,6 +17,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "source": "simulated",
     "device_id": None,
     "replay_path": None,
+    "iq_file": {
+        "path": None,
+        "center_frequency_hz": None,
+        "loop": False,
+    },
     "radio": {
         "center_frequency_hz": 144_300_000,
         "sample_rate_sps": 2_000_000,
@@ -34,7 +39,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "token_file": None,
         "mdns": False,
     },
-    "buffers": {"ring_slots": 64, "block_samples": 4096, "source_queue_blocks": 256, "max_clients": None},
+    "buffers": {"ring_slots": 64, "block_samples": 16384, "source_queue_blocks": 256, "max_clients": None},
     "auto_connect": False,
     "auto_start": False,
     "udp_destination": None,

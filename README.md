@@ -2,7 +2,7 @@
 
 SDRbridge est un répartiteur RX pour Windows : il ouvre une seule source SDR, publie son flux IQ et permet à plusieurs applications de réception de l’utiliser simultanément sans leur donner le contrôle du matériel.
 
-La version 0.5 prend en charge une source simulée, le replay SigMF, le backend natif SDRplay et un backend générique SoapySDR. Soapy énumère les récepteurs connectés par modèle et numéro de série ; les périphériques audio exposés par PothosSDR sont exclus de la liste. QMAP 0.6 reçoit désormais un flux IQ Linrad UDP dédié à 96 kS/s, simultanément avec SDR++.
+La version 0.6 en développement prend en charge une source simulée, le replay SigMF, les fichiers IQ WAV/RF64 de HDSDR ou SDR++, le backend natif SDRplay et un backend générique SoapySDR. Chaque destination UDP peut recevoir son propre débit effectif. QMAP 0.6 conserve son flux Linrad dédié à 96 kS/s, simultanément avec SDR++.
 
 ![Deux instances de SDR++, HDSDR et SDRbridge partageant le même flux RX](docs/assets/sdrbridge-three-clients.png)
 
@@ -10,18 +10,18 @@ La version 0.5 prend en charge une source simulée, le replay SigMF, le backend 
 
 ## Ce que fait le projet
 
-- acquisition RX depuis une source unique : SDRplay natif, SoapySDR, simulation ou replay SigMF ;
+- acquisition RX depuis une source unique : SDRplay natif, SoapySDR, simulation, replay SigMF ou fichier IQ WAV/RF64 ;
 - distribution locale multiprocessus par ring partagé SDBR v2 ;
 - transport UDP SDBU v2 avec métadonnées de fréquence, taux, format, séquence et époque ;
 - transport QMAP/Linrad UDP avec resampling filtré à 96 kS/s et fréquence centrale transmise ;
-- profils DSP partagés `CS16`/`CF32`, notamment 2 MS/s, 192 kS/s et 96 kS/s ;
+- profils DSP `CS16`/`CF32` mutualisés par débit de sortie, par exemple 2 MS/s, 1 MS/s, 192 kS/s et 96 kS/s ;
 - interface Qt pour la radio, les sorties, les profils RF, les captures et les diagnostics ;
 - connecteur natif SDR++ x64, ExtIO HDSDR Win32 et shim ANTRACK ;
 - capture et replay SigMF 1.2.6 ;
 - fonctionnement strictement RX : aucun chemin TX n’est activé.
 
 ```text
-SDR / simulation / replay
+SDR / simulation / replay / fichier IQ
           |
       SDRbridge
        /  |  \
@@ -49,7 +49,7 @@ Sur la machine de développement, PothosSDR expose bien la factory `rtlsdr`, mai
 
 ### Installation simple pour un utilisateur final
 
-La version courante des sources est la **v0.5.0**. Le dernier installateur graphique validé reste **`SDRbridge_Setup_0.4.0.exe`**, disponible dans la [release GitHub v0.4.0](https://github.com/stephanerey/SDRbridge/releases/tag/v0.4.0). La v0.5.0 peut être construite en paquet portable depuis les sources ; aucun installateur v0.5.0 n'est annoncé tant qu'Inno Setup n'a pas produit et qualifié ce fichier.
+La version courante des sources est la **v0.6.0 en développement**. Le dernier installateur graphique validé reste **`SDRbridge_Setup_0.4.0.exe`**, disponible dans la [release GitHub v0.4.0](https://github.com/stephanerey/SDRbridge/releases/tag/v0.4.0). Le paquet portable v0.5.0 reste le dernier paquet construit ; aucun paquet ni installateur v0.6.0 n'est annoncé avant sa construction et sa qualification.
 
 **`SDR_Bridge.exe` ne doit pas être copié seul.** Le build actuel est une application portable « en dossier » : l’exécutable dépend des DLL et du répertoire `_internal` placés à côté de lui. Deux distributions sont donc possibles :
 
@@ -112,6 +112,36 @@ Pour le RSPdx avec la configuration fournie :
 ```
 
 Le raccourci créé par l’installateur charge `config.soapy-sdrpp.json` : la liste **Source** contient donc les SDR détectés par Soapy. La réception reste arrêtée jusqu’au clic sur **Start**. Un lancement direct de `SDR_Bridge.exe` sans argument conserve la source simulée comme mode sûr.
+
+### Capturer un flux IQ
+
+L'onglet **Captures** enregistre le profil sélectionné au format standard **SigMF 1.2.6**, sous la forme d'une paire `.sigmf-data` et `.sigmf-meta`. La fréquence centrale, le taux d'échantillonnage et le format IQ sont inscrits dans les métadonnées ; une discontinuité arrête et finalise la capture sans écraser un fichier existant.
+
+Ce recorder ne produit pas encore le conteneur WAV/RF64 stéréo utilisé par HDSDR ou SDR++. La lecture WAV/RF64 décrite ci-dessous et la capture SigMF sont donc deux fonctions distinctes.
+
+### Lire un fichier IQ HDSDR ou SDR++
+
+La source fichier accepte les conteneurs WAV/RF64 à deux canaux I/Q, aux formats `uint8`, `int16`, `int32` ou `float32`. Le taux d'échantillonnage est lu dans le fichier. Une valeur `--iq-center-frequency` explicite est prioritaire ; sinon SDRbridge lit le bloc HDSDR/SpectraVue `auxi`, puis recherche la fréquence dans le nom (`103.5MHz`, `144300kHz`, etc.).
+
+Dans l'onglet **Radio**, ouvrir la liste **Source** puis choisir **Fichier IQ… — Parcourir**, ou cliquer directement sur le bouton dossier placé à droite de la liste. L'explorateur Windows permet alors de sélectionner l'enregistrement. La source SDR active est arrêtée proprement et remplacée par le fichier sans déconnecter le spectre ni les destinations UDP ; la lecture démarre automatiquement. Pour revenir au récepteur, le sélectionner à nouveau dans la même liste.
+
+La barre d'état indique alors **Fichier IQ …**. Le fichier est lu à sa cadence nominale et les mêmes destinations UDP que pour un SDR réel restent disponibles. La case **Loop IQ file** permet de boucler la lecture. Le replay SigMF reste séparé et inchangé.
+
+### Régler les sorties UDP indépendamment
+
+Dans **Outputs & Clients**, saisir pour chaque client : l'adresse `HOST:PORT`, le transport, le débit de sortie, la taille maximale d'un datagramme et la profondeur de file. **Add client** crée le flux ; sélectionner une ligne puis **Update selected** applique de nouveaux paramètres. Le débit ne peut pas dépasser celui de la source.
+
+Exemple avec une source à 2 MS/s :
+
+| Port | Débit effectif | Usage possible |
+|---:|---:|---|
+| 7355 | 2 000 000 S/s | largeur complète |
+| 7356 | 192 000 S/s | client bande réduite |
+| 7357 | 1 000 000 S/s | client intermédiaire |
+
+Les destinations de même débit et de même format partagent le même traitement DSP. Sur loopback, la taille par défaut est 8192 octets pour réduire les appels UDP ; sur le LAN elle reste à 1200 octets pour éviter la fragmentation. QMAP impose 96 kS/s et 1416 octets.
+
+Le réglage de performance global `buffers.block_samples` vaut 16384 par défaut (environ 8,2 ms à 2 MS/s). Il est aussi surchargeable au démarrage avec `--block-samples`. Une valeur plus petite réduit la latence mais augmente nettement le nombre d'appels DSP et UDP ; elle ne peut pas être changée pendant une acquisition.
 
 ### Journaux et diagnostic d’arrêt
 
@@ -221,7 +251,7 @@ Le paquet portable local, lorsqu’il a été construit, se lance avec `start-sd
 .\run_tests.ps1
 ```
 
-État vérifié au 31 octobre 2026 : 51 tests applicatifs passent. Le transport QMAP/Linrad est vérifié en simulation et avec le RSP1A réel ; le RSPdx et le clone RSP1 restent couverts par les preuves v0.4. La recette d’endurance intégrée reste ouverte : le projet ne revendique donc pas encore une qualification de performance complète.
+État vérifié au 6 novembre 2026 : 60 tests applicatifs passent. Ils couvrent le démarrage en découverte sans SDR, la sélection graphique d'un fichier, le retour au SDR, les fichiers WAV IQ et trois sorties simultanées à 2 MS/s, 192 kS/s et 1 MS/s. Trois enregistrements HDSDR réels ont été relus ; un enregistrement SDR++ réel reste à valider. Le transport QMAP/Linrad est vérifié en simulation et avec le RSP1A réel sur la version précédente, et la recette d'endurance reste ouverte.
 
 ## Documentation
 

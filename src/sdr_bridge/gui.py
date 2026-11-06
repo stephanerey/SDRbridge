@@ -122,6 +122,7 @@ class GainTableDialog(QtWidgets.QDialog):
 
 class BridgeWindow(QtWidgets.QMainWindow):
     configApplied = QtCore.pyqtSignal(object, object)
+    IQ_FILE_PICKER = "__browse_iq_file__"
 
     def __init__(self, bridge: SDRBridge, runtime: Any | None = None):
         super().__init__()
@@ -275,11 +276,22 @@ class BridgeWindow(QtWidgets.QMainWindow):
         self.device_refresh_button.setToolTip("Refresh sources")
         self.device_refresh_button.setAccessibleName("Refresh sources")
         self.device_refresh_button.clicked.connect(self._refresh_devices)
+        self.iq_file_button = QtWidgets.QToolButton()
+        self.iq_file_button.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DialogOpenButton))
+        self.iq_file_button.setToolTip("Open an IQ recording")
+        self.iq_file_button.setAccessibleName("Open IQ file")
+        self.iq_file_button.clicked.connect(self._choose_iq_file)
+        self.iq_file_button.setEnabled(self.runtime is not None and hasattr(self.runtime, "select_iq_file"))
         source_top.addWidget(QtWidgets.QLabel("Source"), 0, 0)
         source_top.addWidget(self.device_combo, 0, 1)
         source_top.addWidget(self.device_refresh_button, 0, 2)
+        source_top.addWidget(self.iq_file_button, 0, 3)
         self.connection_label = QtWidgets.QLabel(""); self.connection_label.setWordWrap(True)
-        source_top.addWidget(self.connection_label, 1, 0, 1, 3)
+        source_top.addWidget(self.connection_label, 1, 0, 1, 4)
+        self.iq_loop_check = QtWidgets.QCheckBox("Loop IQ file")
+        self.iq_loop_check.toggled.connect(self._iq_loop_changed)
+        self.iq_loop_check.setVisible(False)
+        source_top.addWidget(self.iq_loop_check, 2, 1, 1, 3)
         source_layout.addLayout(source_top)
 
         controls = QtWidgets.QGridLayout()
@@ -423,7 +435,10 @@ class BridgeWindow(QtWidgets.QMainWindow):
 
     def _refresh_devices(self) -> None:
         try:
-            devices = self.bridge.enumerate_devices()
+            if self.runtime is not None and hasattr(self.runtime, "available_sources"):
+                devices = self.runtime.available_sources()
+            else:
+                devices = self.bridge.enumerate_devices()
             current = self.bridge.device_id
             self.device_combo.blockSignals(True)
             self.device_combo.clear()
@@ -432,6 +447,9 @@ class BridgeWindow(QtWidgets.QMainWindow):
                 serial = device.get("serial")
                 suffix = f" — S/N {serial}" if serial and str(serial) not in str(label) else ""
                 self.device_combo.addItem(f"{device.get('backend', '')}: {label}{suffix}", device.get("device_id"))
+            if self.runtime is not None and hasattr(self.runtime, "select_iq_file"):
+                self.device_combo.insertSeparator(self.device_combo.count())
+                self.device_combo.addItem("Fichier IQ… — Parcourir", self.IQ_FILE_PICKER)
             if current:
                 index = self.device_combo.findData(current)
                 if index >= 0:
@@ -491,6 +509,11 @@ class BridgeWindow(QtWidgets.QMainWindow):
                         self.extra_gains_form.addWidget(holder)
                     self.extra_gain_controls[name] = control
                 self.dynamic_container.setVisible(bool(self.extra_gain_controls))
+            is_file = str(current or "").startswith("file:")
+            self.iq_loop_check.blockSignals(True)
+            self.iq_loop_check.setChecked(bool(getattr(self.bridge.source, "loop", False)))
+            self.iq_loop_check.blockSignals(False)
+            self.iq_loop_check.setVisible(is_file)
             self.device_combo.blockSignals(False)
         except Exception as exc:
             self.device_combo.clear(); self.device_combo.addItem(f"Discovery unavailable: {exc}")
@@ -527,15 +550,53 @@ class BridgeWindow(QtWidgets.QMainWindow):
 
     def _select_device(self, index: int) -> None:
         device_id = self.device_combo.itemData(index)
-        if not device_id or device_id == self.bridge.device_id:
+        if not device_id:
+            return
+        if device_id == self.IQ_FILE_PICKER:
+            self._choose_iq_file()
+            return
+        if device_id == self.bridge.device_id:
             return
         try:
-            self.bridge.select_device(str(device_id))
+            if self.runtime is not None and hasattr(self.runtime, "select_source_device"):
+                self.runtime.select_source_device(str(device_id))
+            else:
+                self.bridge.select_device(str(device_id))
             self._show_error("")
             self._refresh_devices()
         except Exception as exc:
             self._show_error(f"Device rejected — {exc}")
         self.refresh()
+
+    def _choose_iq_file(self) -> None:
+        if self.runtime is None or not hasattr(self.runtime, "select_iq_file"):
+            self._show_error("IQ file selection is unavailable")
+            return
+        current_path = getattr(self.runtime, "iq_file_path", None)
+        start_directory = str(Path(current_path).parent) if current_path else str(Path.home())
+        path, _selected_filter = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Select an IQ recording",
+            start_directory,
+            "IQ recordings (*.wav *.rf64);;WAVE files (*.wav);;All files (*.*)",
+        )
+        if not path:
+            self._refresh_devices()
+            return
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            self.runtime.select_iq_file(path, loop=self.iq_loop_check.isChecked())
+            self._show_error("")
+        except Exception as exc:
+            self._show_error(f"IQ file rejected — {exc}")
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+            self._refresh_devices()
+            self.refresh()
+
+    def _iq_loop_changed(self, enabled: bool) -> None:
+        if self.runtime is not None and hasattr(self.runtime, "set_iq_file_loop"):
+            self.runtime.set_iq_file_loop(bool(enabled))
 
     def _streams_tab(self) -> QtWidgets.QWidget:
         tab = QtWidgets.QWidget(); layout = QtWidgets.QVBoxLayout(tab)
@@ -551,28 +612,61 @@ class BridgeWindow(QtWidgets.QMainWindow):
         self.clients_table.setHorizontalHeaderLabels(["Client", "Blocks read", "Ring drops", "Last sequence"])
         self.clients_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         layout.addWidget(QtWidgets.QLabel("Confirmed local clients (separate UDP destinations)")); layout.addWidget(self.clients_table)
-        self.destinations_table = QtWidgets.QTableWidget(0, 8)
-        self.destinations_table.setHorizontalHeaderLabels(["Destination", "Transport", "Packets", "Bytes", "Queue drops", "Errors", "Center frequency", "Rate"])
+        self.destinations_table = QtWidgets.QTableWidget(0, 10)
+        self.destinations_table.setHorizontalHeaderLabels([
+            "Destination", "Transport", "Output rate", "Datagram", "Queue",
+            "Packets", "Bytes", "Queue drops", "Errors", "Center Hz",
+        ])
         self.destinations_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         self.destinations_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.destinations_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        self.destinations_table.itemSelectionChanged.connect(self._destination_selected)
         layout.addWidget(QtWidgets.QLabel("UDP clients / destinations")); layout.addWidget(self.destinations_table)
-        destination_controls = QtWidgets.QHBoxLayout()
+        destination_controls = QtWidgets.QGridLayout()
         self.destination_edit = QtWidgets.QLineEdit("127.0.0.1:7356")
         self.destination_edit.setPlaceholderText("HOST:PORT")
         self.destination_transport = QtWidgets.QComboBox()
         self.destination_transport.addItem("SDR++ raw CS16", "sdrpp_raw_cs16")
         self.destination_transport.addItem("SDBU v2", "sdbu_v2")
         self.destination_transport.addItem("QMAP / Linrad 96 kS/s", "qmap_linrad")
+        self.destination_transport.currentIndexChanged.connect(self._destination_transport_changed)
+        self.destination_rate = QtWidgets.QSpinBox()
+        self.destination_rate.setRange(1, 20_000_000)
+        self.destination_rate.setSingleStep(1_000)
+        self.destination_rate.setValue(self.bridge.config.sample_rate_sps)
+        self.destination_rate.setSuffix(" S/s")
+        self.destination_rate.setGroupSeparatorShown(True)
+        self.destination_datagram = QtWidgets.QSpinBox()
+        self.destination_datagram.setRange(256, 65_507)
+        self.destination_datagram.setValue(8192)
+        self.destination_datagram.setSuffix(" B")
+        self.destination_queue = QtWidgets.QSpinBox()
+        self.destination_queue.setRange(4, 4096)
+        self.destination_queue.setValue(32)
+        self.destination_queue.setSuffix(" blocks")
         self.add_destination_button = QtWidgets.QPushButton("Add client")
         self.add_destination_button.clicked.connect(self._add_udp_destination)
+        self.update_destination_button = QtWidgets.QPushButton("Update selected")
+        self.update_destination_button.clicked.connect(self._update_udp_destination)
         self.remove_destination_button = QtWidgets.QPushButton("Remove")
         self.remove_destination_button.clicked.connect(self._remove_udp_destination)
-        destination_controls.addWidget(QtWidgets.QLabel("Endpoint")); destination_controls.addWidget(self.destination_edit, 1)
-        destination_controls.addWidget(self.destination_transport); destination_controls.addWidget(self.add_destination_button); destination_controls.addWidget(self.remove_destination_button)
+        destination_controls.addWidget(QtWidgets.QLabel("Endpoint"), 0, 0)
+        destination_controls.addWidget(self.destination_edit, 0, 1)
+        destination_controls.addWidget(QtWidgets.QLabel("Transport"), 0, 2)
+        destination_controls.addWidget(self.destination_transport, 0, 3)
+        destination_controls.addWidget(QtWidgets.QLabel("Output rate"), 1, 0)
+        destination_controls.addWidget(self.destination_rate, 1, 1)
+        destination_controls.addWidget(QtWidgets.QLabel("Datagram"), 1, 2)
+        destination_controls.addWidget(self.destination_datagram, 1, 3)
+        destination_controls.addWidget(QtWidgets.QLabel("Queue"), 1, 4)
+        destination_controls.addWidget(self.destination_queue, 1, 5)
+        destination_controls.addWidget(self.add_destination_button, 2, 3)
+        destination_controls.addWidget(self.update_destination_button, 2, 4)
+        destination_controls.addWidget(self.remove_destination_button, 2, 5)
         layout.addLayout(destination_controls)
-        layout.addWidget(QtWidgets.QLabel("SDR++ and QMAP clients are passive UDP destinations. QMAP uses the Linrad format at 96 kS/s (usual port: 50004)."))
+        layout.addWidget(QtWidgets.QLabel("Each UDP client has its own effective output rate. Equivalent rates share one DSP pipeline. QMAP is fixed to Linrad at 96 kS/s (usual port: 50004)."))
         if self.runtime is None or not hasattr(self.runtime, "add_udp_destination"):
-            self.add_destination_button.setEnabled(False); self.remove_destination_button.setEnabled(False)
+            self.add_destination_button.setEnabled(False); self.update_destination_button.setEnabled(False); self.remove_destination_button.setEnabled(False)
         network_enabled = bool(getattr(self.runtime, "native_control", None))
         layout.addWidget(QtWidgets.QLabel("Native loopback control enabled" if network_enabled else "Native network disabled by configuration"))
         return tab
@@ -582,11 +676,60 @@ class BridgeWindow(QtWidgets.QMainWindow):
             self._show_error("UDP destination management is unavailable")
             return
         try:
-            self.runtime.add_udp_destination(self.destination_edit.text().strip(), self.destination_transport.currentData())
+            self.runtime.add_udp_destination(
+                self.destination_edit.text().strip(), self.destination_transport.currentData(),
+                self.destination_rate.value(), self.destination_datagram.value(),
+                self.destination_queue.value(),
+            )
             self._show_error("")
             self.refresh()
         except Exception as exc:
             self._show_error(f"Client rejected — {exc}")
+
+    def _destination_transport_changed(self) -> None:
+        qmap = self.destination_transport.currentData() == "qmap_linrad"
+        if qmap:
+            self.destination_rate.setValue(96_000)
+            self.destination_datagram.setValue(1416)
+        self.destination_rate.setEnabled(not qmap)
+        self.destination_datagram.setEnabled(not qmap)
+
+    def _destination_selected(self) -> None:
+        row = self.destinations_table.currentRow()
+        if row < 0 or self.destinations_table.item(row, 0) is None:
+            return
+        self.destination_edit.setText(self.destinations_table.item(row, 0).text())
+        transport = self.destinations_table.item(row, 1).text()
+        index = self.destination_transport.findData(transport)
+        if index >= 0:
+            self.destination_transport.setCurrentIndex(index)
+        for column, control in ((2, self.destination_rate), (3, self.destination_datagram), (4, self.destination_queue)):
+            item = self.destinations_table.item(row, column)
+            if item is not None:
+                control.setValue(int(item.text()))
+
+    def _update_udp_destination(self) -> None:
+        if self.runtime is None or not hasattr(self.runtime, "update_udp_destination"):
+            self._show_error("UDP destination update is unavailable")
+            return
+        row = self.destinations_table.currentRow()
+        if row < 0 or self.destinations_table.item(row, 0) is None:
+            self._show_error("Select a UDP client first")
+            return
+        selected_endpoint = self.destinations_table.item(row, 0).text()
+        if self.destination_edit.text().strip() != selected_endpoint:
+            self._show_error("Endpoint cannot be changed in-place; remove it and add the new endpoint")
+            return
+        try:
+            self.runtime.update_udp_destination(
+                selected_endpoint, self.destination_transport.currentData(),
+                self.destination_rate.value(), self.destination_datagram.value(),
+                self.destination_queue.value(),
+            )
+            self._show_error("")
+            self.refresh()
+        except Exception as exc:
+            self._show_error(f"Client update failed — {exc}")
 
     def _remove_udp_destination(self) -> None:
         if self.runtime is None or not hasattr(self.runtime, "remove_udp_destination"):
@@ -817,7 +960,10 @@ class BridgeWindow(QtWidgets.QMainWindow):
         if self.device_combo.count() == 0:
             self._refresh_devices()
         source_name = status["source"]
-        if source_name.lower().startswith("source simul") or "simulat" in source_name.lower():
+        if source_name.lower().startswith("fichier iq"):
+            self.connection_label.setText(source_name)
+            self.connection_label.setStyleSheet("color:#145a8d")
+        elif source_name.lower().startswith("source simul") or "simulat" in source_name.lower():
             self.connection_label.setText("Simulation")
             self.connection_label.setStyleSheet("color:#8a5200")
         elif state == "RUNNING":
@@ -848,7 +994,13 @@ class BridgeWindow(QtWidgets.QMainWindow):
             destinations = [] if operator_udp is None else [operator_udp.destination.snapshot()]
         self.destinations_table.setRowCount(len(destinations))
         for row, item in enumerate(destinations):
-            values = (item["destination"], item["transport"], item["sent_packets"], item["sent_bytes"], item["dropped_blocks"], item["socket_errors"], item.get("last_center_frequency_hz") or "—", item.get("last_sample_rate_sps") or "—")
+            values = (
+                item["destination"], item["transport"],
+                item.get("configured_sample_rate_sps") or item.get("last_sample_rate_sps") or "—",
+                item.get("datagram_bytes") or "—", item.get("queue_blocks") or "—",
+                item["sent_packets"], item["sent_bytes"], item["dropped_blocks"],
+                item["socket_errors"], item.get("last_center_frequency_hz") or "—",
+            )
             for column, value in enumerate(values):
                 self.destinations_table.setItem(row, column, QtWidgets.QTableWidgetItem(str(value)))
         self.status_bar.setText(f"{status['sample_rate_measured']/1e6:.3f} MS/s | source queue drops {status['source_queue_drops']} | errors {status['source_errors']}")

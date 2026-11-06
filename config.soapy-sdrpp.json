@@ -3,6 +3,11 @@
   "source": "soapy",
   "device_id": null,
   "replay_path": null,
+  "iq_file": {
+    "path": null,
+    "center_frequency_hz": null,
+    "loop": false
+  },
   "radio": {
     "center_frequency_hz": 144300000,
     "sample_rate_sps": 2000000,
@@ -22,7 +27,7 @@
   },
   "buffers": {
     "ring_slots": 64,
-    "block_samples": 4096,
+    "block_samples": 16384,
     "source_queue_blocks": 256,
     "max_clients": null
   },
@@ -32,7 +37,10 @@
   "udp_destinations": [
     {
       "endpoint": "127.0.0.1:7355",
-      "transport": "sdbu_v2"
+      "transport": "sdbu_v2",
+      "sample_rate_sps": 2000000,
+      "datagram_bytes": 8192,
+      "queue_blocks": 32
     },
     {
       "endpoint": "127.0.0.1:50004",

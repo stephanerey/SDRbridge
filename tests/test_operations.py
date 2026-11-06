@@ -81,12 +81,32 @@ class ConfigTests(unittest.TestCase):
             path = Path(directory) / "app.json"
             config = json.loads(json.dumps(DEFAULT_CONFIG))
             config["udp_destinations"] = [
-                {"endpoint": "127.0.0.1:7355", "transport": "sdbu_v2"},
+                {
+                    "endpoint": "127.0.0.1:7355", "transport": "sdbu_v2",
+                    "sample_rate_sps": 192_000, "datagram_bytes": 8192, "queue_blocks": 64,
+                },
                 {"endpoint": "127.0.0.1:50004", "transport": "qmap_linrad"},
             ]
             save_app_config(path, config)
             _, loaded = load_app_config(path)
             self.assertEqual(loaded["udp_destinations"], config["udp_destinations"])
+
+    def test_iq_file_and_udp_per_destination_cli_options(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "app.json"
+            save_app_config(path, DEFAULT_CONFIG)
+            iq_path = Path(directory) / "capture_144.3MHz.wav"
+            args = build_parser().parse_args([
+                "--config", str(path), "--iq-file", str(iq_path),
+                "--iq-center-frequency", "144300000", "--iq-loop",
+                "--udp", "127.0.0.1:7355", "--udp-rate", "192000",
+                "--udp-datagram-bytes", "8192", "--udp-queue-blocks", "64",
+            ])
+            _, config = merged_config(args)
+            self.assertEqual(config["source"], "file")
+            self.assertEqual(config["iq_file"], {
+                "path": str(iq_path), "center_frequency_hz": 144_300_000, "loop": True,
+            })
 
     def test_atomic_failure_keeps_previous_file(self):
         with tempfile.TemporaryDirectory() as directory:

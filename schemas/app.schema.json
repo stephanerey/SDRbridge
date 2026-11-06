@@ -5,9 +5,19 @@
   "required": ["schema_version", "source", "radio", "network", "buffers", "auto_connect", "auto_start"],
   "properties": {
     "schema_version": {"const": 1},
-    "source": {"enum": ["simulated", "soapy", "native", "replay"]},
+    "source": {"enum": ["simulated", "soapy", "native", "replay", "file"]},
     "device_id": {"type": ["string", "null"]},
     "replay_path": {"type": ["string", "null"]},
+    "iq_file": {
+      "type": "object",
+      "required": ["path", "center_frequency_hz", "loop"],
+      "properties": {
+        "path": {"type": ["string", "null"]},
+        "center_frequency_hz": {"type": ["integer", "null"], "minimum": 1000, "maximum": 2000000000},
+        "loop": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
     "radio": {
       "type": "object",
       "required": ["center_frequency_hz", "sample_rate_sps", "bandwidth_hz", "gain_reduction_db", "agc_enabled"],
@@ -59,7 +69,10 @@
             "required": ["endpoint", "transport"],
             "properties": {
               "endpoint": {"type": "string", "pattern": "^[^:]+:[0-9]+$"},
-              "transport": {"enum": ["sdbu_v2", "sdrpp_raw_cs16", "qmap_linrad"]}
+              "transport": {"enum": ["sdbu_v2", "sdrpp_raw_cs16", "qmap_linrad"]},
+              "sample_rate_sps": {"type": "integer", "minimum": 1, "maximum": 20000000},
+              "datagram_bytes": {"type": "integer", "minimum": 256, "maximum": 65507},
+              "queue_blocks": {"type": "integer", "minimum": 4, "maximum": 4096}
             },
             "additionalProperties": false
           }

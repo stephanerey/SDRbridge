@@ -26,7 +26,10 @@ class NativeSDRplaySource(IQSource):
     DEVICE_ID = "native-sdrplay:first-available"
     CALLBACK = ctypes.CFUNCTYPE(None, ctypes.POINTER(ctypes.c_int16), ctypes.c_uint32, ctypes.c_uint64, ctypes.c_void_p)
 
-    def __init__(self, dll_path: str | None = None):
+    def __init__(self, dll_path: str | None = None, block_samples: int = 4096):
+        if block_samples < 1:
+            raise ValueError("block_samples must be positive")
+        self.block_samples = int(block_samples)
         self._dll_path = Path(dll_path) if dll_path else self._discover()
         self._dll: ctypes.CDLL | None = None
         self._api_dll: ctypes.CDLL | None = None
@@ -245,7 +248,7 @@ class NativeSDRplaySource(IQSource):
         # Python. On regroupe donc les retours en blocs de la taille du ring
         # logique, tout en conservant l'index d'échantillon pour détecter un
         # trou matériel.
-        aggregate_target = 4096
+        aggregate_target = self.block_samples
         pending = bytearray()
         pending_first_sample = 0
         pending_sample_count = 0

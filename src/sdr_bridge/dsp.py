@@ -185,11 +185,19 @@ class DSPPipeline:
             if self.resampler:
                 self.resampler.reset()
         try:
-            values = payload_to_complex(block.payload, block.sample_format)
-            output = values if self.resampler is None else self.resampler.process(values)
-            if not len(output):
-                return None
-            payload = complex_to_payload(output, self.output_format)
+            if self.resampler is None and block.sample_format is self.output_format:
+                # The full-rate CS16 operator profile is a routing operation,
+                # not a DSP operation. Reuse the immutable payload instead of
+                # converting every sample to complex64 and back.
+                output_count = block.sample_count
+                payload = block.payload
+            else:
+                values = payload_to_complex(block.payload, block.sample_format)
+                output = values if self.resampler is None else self.resampler.process(values)
+                if not len(output):
+                    return None
+                output_count = len(output)
+                payload = memoryview(complex_to_payload(output, self.output_format))
         except Exception:
             self.errors += 1
             raise
@@ -204,7 +212,7 @@ class DSPPipeline:
             epoch=block.epoch,
             sequence=self.sequence,
             first_sample_index=self.first_sample_index,
-            sample_count=len(output),
+            sample_count=output_count,
             sample_rate_sps=self.output_rate,
             center_frequency_hz=block.center_frequency_hz,
             config_revision=block.config_revision,
@@ -214,10 +222,10 @@ class DSPPipeline:
             timestamp_origin=origin,
             discontinuity=discontinuity,
             lost_samples=block.lost_samples,
-            payload=memoryview(payload),
+            payload=payload,
         )
         self.sequence += 1
-        self.first_sample_index += len(output)
+        self.first_sample_index += output_count
         self.blocks_processed += 1
-        self.samples_produced += len(output)
+        self.samples_produced += output_count
         return result
