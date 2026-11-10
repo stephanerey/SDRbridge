@@ -109,20 +109,167 @@ def design_resampler_filter(input_rate: int, output_rate: int) -> tuple[np.ndarr
     return coefficients, characterization
 
 
+@lru_cache(maxsize=32)
+def design_fractional_decimator_filters(
+    input_rate: int,
+    output_rate: int,
+) -> tuple[np.ndarray, np.ndarray, FilterCharacterization]:
+    """Design an efficient two-stage rational downsampler.
+
+    A monolithic FIR for ratios such as 10 MS/s -> 4 MS/s has to provide a
+    narrow 80 dB transition at the *upsampled* rate.  The former design needed
+    509 taps and could not keep up with real time on one i5-9500 core.  Split
+    the job instead:
+
+    1. an elliptic IIR at the input rate removes everything that would alias
+       above the output Nyquist frequency;
+    2. a short FIR at the upsampled rate only has to reject the distant images
+       introduced by zero insertion.
+
+    The two filters retain the 0.4 * output-rate passband and at least 80 dB
+    stopband target while reducing the 10 -> 4 MS/s polyphase FIR from 509 to
+    fewer than twenty coefficients.
+    """
+    if input_rate <= 0 or output_rate <= 0 or output_rate >= input_rate:
+        raise ValueError("fractional decimator requires 0 < output_rate < input_rate")
+    ratio = Fraction(output_rate, input_rate)
+    up, down = ratio.numerator, ratio.denominator
+    if up <= 1:
+        raise ValueError("fractional decimator requires a non-integer ratio")
+
+    passband_ripple_db = 0.05
+    stopband_attenuation_db = 82.0
+    passband = 0.8 * output_rate / input_rate
+    stopband = output_rate / input_rate
+    order, critical = signal.ellipord(
+        passband,
+        stopband,
+        passband_ripple_db,
+        stopband_attenuation_db,
+    )
+    prefilter_sos = signal.ellip(
+        order,
+        passband_ripple_db,
+        stopband_attenuation_db,
+        critical,
+        btype="low",
+        output="sos",
+    )
+
+    design_rate = input_rate * up
+    useful_edge_hz = 0.40 * output_rate
+    # The closest zero-insertion image begins at input_rate - output_rate / 2.
+    # The IIR has already removed the original spectrum above output_rate / 2,
+    # so this wide transition is sufficient for the interpolation FIR.
+    image_edge_hz = input_rate - 0.50 * output_rate
+    transition_width = (image_edge_hz - useful_edge_hz) / (design_rate / 2.0)
+    if not 0.0 < transition_width < 1.0:
+        raise ValueError("fractional interpolation transition is invalid")
+    fir_order, beta = signal.kaiserord(85.0, transition_width)
+    fir_taps = max(7, int(fir_order))
+    if fir_taps % 2 == 0:
+        fir_taps += 1
+    cutoff_hz = (useful_edge_hz + image_edge_hz) / 2.0
+    interpolation_taps = signal.firwin(
+        fir_taps,
+        cutoff_hz / (design_rate / 2.0),
+        window=("kaiser", beta),
+    )
+    interpolation_taps *= up
+
+    numerator, denominator = signal.sos2tf(prefilter_sos)
+    with np.errstate(all="ignore"):
+        _, iir_delay = signal.group_delay((numerator, denominator), w=[0.0])
+    iir_delay_samples = max(0.0, float(iir_delay[0]))
+    fir_delay_input_samples = ((fir_taps - 1) / 2.0) / up
+
+    # Measure the short FIR rather than merely reporting the Kaiser target.
+    frequencies, response = signal.freqz(interpolation_taps, worN=131072)
+    frequency_hz = frequencies / math.pi * (design_rate / 2.0)
+    normalized_response = np.abs(response) / up
+    fir_passband = normalized_response[frequency_hz <= useful_edge_hz]
+    fir_stopband = normalized_response[frequency_hz >= image_edge_hz]
+    fir_passband_db = 20.0 * np.log10(np.maximum(fir_passband, 1e-300))
+    fir_ripple_db = float(np.max(fir_passband_db) - np.min(fir_passband_db))
+    fir_attenuation_db = float(
+        -20.0 * np.log10(max(float(np.max(fir_stopband)), 1e-300))
+    )
+
+    total_delay_samples = iir_delay_samples + fir_delay_input_samples
+    characterization = FilterCharacterization(
+        taps=(order + 1) + fir_taps,
+        up=up,
+        down=down,
+        group_delay_input_samples=total_delay_samples,
+        group_delay_seconds=total_delay_samples / input_rate,
+        passband_ripple_db=passband_ripple_db + fir_ripple_db,
+        stopband_attenuation_db=min(stopband_attenuation_db, fir_attenuation_db),
+    )
+    return prefilter_sos, interpolation_taps, characterization
+
+
 class StreamingRationalResampler:
     """FIR rationnel causal, réalisé avec upfirdn et historique inter-blocs."""
 
-    def __init__(self, input_rate: int, output_rate: int):
+    def __init__(self, input_rate: int, output_rate: int, *, _allow_multistage: bool = True):
         self.input_rate = int(input_rate)
         self.output_rate = int(output_rate)
-        self.taps, self.characterization = design_resampler_filter(input_rate, output_rate)
-        self.up = self.characterization.up
-        self.down = self.characterization.down
-        self._history_inputs = int(math.ceil((len(self.taps) - 1) / self.up))
-        self._history_capacity = self._history_inputs + self.down
+        ratio = Fraction(output_rate, input_rate)
+        self.up = ratio.numerator
+        self.down = ratio.denominator
+        self._integer_stage: StreamingIntegerDecimator | None = None
+        self._final_stage: StreamingRationalResampler | None = None
+        self._prefilter_sos: np.ndarray | None = None
+
+        if self.up == 1 and self.down > 1:
+            self._integer_stage = StreamingIntegerDecimator(input_rate, self.down)
+            self.taps = np.empty(0, dtype=np.float64)
+            self.characterization = self._integer_stage.characterization
+        else:
+            prefactor = _largest_integer_prefactor(input_rate, output_rate, self.down) if _allow_multistage else 1
+            if prefactor > 1:
+                intermediate_rate = input_rate // prefactor
+                self._integer_stage = StreamingIntegerDecimator(input_rate, prefactor)
+                self._final_stage = StreamingRationalResampler(
+                    intermediate_rate,
+                    output_rate,
+                    _allow_multistage=False,
+                )
+                final = self._final_stage.characterization
+                integer = self._integer_stage.characterization
+                delay_seconds = integer.group_delay_seconds + final.group_delay_seconds
+                self.taps = self._final_stage.taps
+                self.characterization = FilterCharacterization(
+                    taps=integer.taps + final.taps,
+                    up=self.up,
+                    down=self.down,
+                    group_delay_input_samples=delay_seconds * input_rate,
+                    group_delay_seconds=delay_seconds,
+                    passband_ripple_db=integer.passband_ripple_db + final.passband_ripple_db,
+                    stopband_attenuation_db=min(integer.stopband_attenuation_db, final.stopband_attenuation_db),
+                )
+            else:
+                self._prefilter_sos, self.taps, self.characterization = (
+                    design_fractional_decimator_filters(input_rate, output_rate)
+                )
+        if self._integer_stage is not None:
+            self._history_inputs = 0
+            self._history_capacity = 0
+        else:
+            self._history_inputs = int(math.ceil((len(self.taps) - 1) / self.up))
+            self._history_capacity = self._history_inputs + self.down
         self.reset()
 
     def reset(self) -> None:
+        if self._integer_stage is not None:
+            self._integer_stage.reset()
+        if self._final_stage is not None:
+            self._final_stage.reset()
+        if self._prefilter_sos is not None:
+            self._prefilter_state = np.zeros(
+                (len(self._prefilter_sos), 2),
+                dtype=np.complex128,
+            )
         self._history = np.empty(0, dtype=np.complex64)
         self._input_seen = 0
         self._next_output_index = 0
@@ -131,6 +278,18 @@ class StreamingRationalResampler:
         data = np.asarray(values, dtype=np.complex64)
         if not len(data):
             return np.empty(0, dtype=np.complex64)
+        if self._integer_stage is not None:
+            decimated = self._integer_stage.process(data)
+            if self._final_stage is not None:
+                return self._final_stage.process(decimated)
+            return decimated
+        if self._prefilter_sos is not None:
+            data, self._prefilter_state = signal.sosfilt(
+                self._prefilter_sos,
+                data,
+                zi=self._prefilter_state,
+            )
+            data = data.astype(np.complex64, copy=False)
         start_input = self._input_seen
         history = self._history
         available_base = start_input - len(history)
@@ -153,6 +312,73 @@ class StreamingRationalResampler:
         keep = min(self._history_capacity, len(combined))
         self._history = combined[-keep:].copy()
         return output
+
+
+def _largest_integer_prefactor(input_rate: int, output_rate: int, reduced_down: int) -> int:
+    """Return a useful exact decimation stage before a rational conversion."""
+    limit = input_rate // output_rate
+    if limit < 2:
+        return 1
+    candidates = {1}
+    for divisor in range(2, math.isqrt(reduced_down) + 1):
+        if reduced_down % divisor:
+            continue
+        if divisor <= limit and input_rate % divisor == 0:
+            candidates.add(divisor)
+        paired = reduced_down // divisor
+        if paired <= limit and input_rate % paired == 0:
+            candidates.add(paired)
+    return max(candidates)
+
+
+@lru_cache(maxsize=32)
+def design_integer_decimator_filter(input_rate: int, factor: int) -> tuple[np.ndarray, FilterCharacterization]:
+    """Design a compact causal elliptic anti-alias filter for integer decimation."""
+    if input_rate <= 0 or factor < 2 or input_rate % factor:
+        raise ValueError("integer decimator requires an exact factor >= 2")
+    passband = 0.8 / factor
+    stopband = 1.0 / factor
+    ripple_db = 0.1
+    attenuation_db = 80.0
+    order, critical = signal.ellipord(passband, stopband, ripple_db, attenuation_db)
+    sos = signal.ellip(order, ripple_db, attenuation_db, critical, btype="low", output="sos")
+    numerator, denominator = signal.sos2tf(sos)
+    with np.errstate(all="ignore"):
+        _, delay = signal.group_delay((numerator, denominator), w=[0.0])
+    delay_samples = max(0.0, float(delay[0]))
+    characterization = FilterCharacterization(
+        taps=order + 1,
+        up=1,
+        down=factor,
+        group_delay_input_samples=delay_samples,
+        group_delay_seconds=delay_samples / input_rate,
+        passband_ripple_db=ripple_db,
+        stopband_attenuation_db=attenuation_db,
+    )
+    return sos, characterization
+
+
+class StreamingIntegerDecimator:
+    """Fast streaming IIR decimator with phase preserved across input blocks."""
+
+    def __init__(self, input_rate: int, factor: int):
+        self.input_rate = int(input_rate)
+        self.factor = int(factor)
+        self.sos, self.characterization = design_integer_decimator_filter(self.input_rate, self.factor)
+        self.reset()
+
+    def reset(self) -> None:
+        self._state = np.zeros((len(self.sos), 2), dtype=np.complex128)
+        self._input_seen = 0
+
+    def process(self, values: np.ndarray) -> np.ndarray:
+        data = np.asarray(values, dtype=np.complex64)
+        if not len(data):
+            return np.empty(0, dtype=np.complex64)
+        filtered, self._state = signal.sosfilt(self.sos, data, zi=self._state)
+        first = (-self._input_seen) % self.factor
+        self._input_seen += len(data)
+        return filtered[first::self.factor].astype(np.complex64, copy=False)
 
 
 class DSPPipeline:
@@ -180,7 +406,10 @@ class DSPPipeline:
         reset = self.epoch != block.epoch or block.discontinuity is not Discontinuity.NONE
         if reset:
             self.epoch = block.epoch
-            self.sequence = 0
+            # Profile rings persist while the source is stopped, replaced or
+            # recovered.  Their publication sequence must therefore stay
+            # monotone just like the master ring; first_sample_index remains
+            # epoch-local and the DSP state is reset below.
             self.first_sample_index = 0
             if self.resampler:
                 self.resampler.reset()

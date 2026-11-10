@@ -1,0 +1,90 @@
+diff --git a/Registration.cpp b/Registration.cpp
+index 3031dcc..9b2cc7f 100644
+--- a/Registration.cpp
++++ b/Registration.cpp
+@@ -49,11 +49,11 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
+ 
+    for (unsigned int i = 0; i < nDevs; i++)
+    {
+-      if (not rspDevs[i].valid) continue;
++      if (!rspDevs[i].valid) continue;
+       SoapySDR::Kwargs dev;
+       dev["serial"] = rspDevs[i].SerNo;
+-      const bool serialMatch = args.count("serial") == 0 or args.at("serial") == dev["serial"];
+-      if (not serialMatch) continue;
++      const bool serialMatch = args.count("serial") == 0 || args.at("serial") == dev["serial"];
++      if (!serialMatch) continue;
+       std::string modelName;
+       if (rspDevs[i].hwVer == SDRPLAY_RSP1_ID)
+       {
+@@ -97,7 +97,7 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
+       if (rspDevs[i].rspDuoMode & sdrplay_api_RspDuoMode_Single_Tuner)
+       {
+          dev["mode"] = "ST";
+-         const bool modeMatch = args.count("mode") == 0 or args.at("mode") == dev["mode"];
++         const bool modeMatch = args.count("mode") == 0 || args.at("mode") == dev["mode"];
+          if (modeMatch)
+          {
+             sprintf_s(lblstr, sizeof(lblstr), "SDRplay Dev%ld %s %s - Single Tuner", results.size(), modelName.c_str(), rspDevs[i].SerNo);
+@@ -109,7 +109,7 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
+       if (rspDevs[i].rspDuoMode & sdrplay_api_RspDuoMode_Dual_Tuner)
+       {
+          dev["mode"] = "DT";
+-         const bool modeMatch = args.count("mode") == 0 or args.at("mode") == dev["mode"];
++         const bool modeMatch = args.count("mode") == 0 || args.at("mode") == dev["mode"];
+          if (modeMatch)
+          {
+             sprintf_s(lblstr, sizeof(lblstr), "SDRplay Dev%ld %s %s - Dual Tuner", results.size(), modelName.c_str(), rspDevs[i].SerNo);
+@@ -121,7 +121,7 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
+       if (rspDevs[i].rspDuoMode & sdrplay_api_RspDuoMode_Master)
+       {
+          dev["mode"] = "MA";
+-         const bool modeMatch = args.count("mode") == 0 or args.at("mode") == dev["mode"];
++         const bool modeMatch = args.count("mode") == 0 || args.at("mode") == dev["mode"];
+          if (modeMatch)
+          {
+             sprintf_s(lblstr, sizeof(lblstr), "SDRplay Dev%ld %s %s - Master", results.size(), modelName.c_str(), rspDevs[i].SerNo);
+@@ -133,7 +133,7 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
+       if (rspDevs[i].rspDuoMode & sdrplay_api_RspDuoMode_Master)
+       {
+          dev["mode"] = "MA8";
+-         const bool modeMatch = args.count("mode") == 0 or args.at("mode") == dev["mode"];
++         const bool modeMatch = args.count("mode") == 0 || args.at("mode") == dev["mode"];
+          if (modeMatch)
+          {
+             sprintf_s(lblstr, sizeof(lblstr), "SDRplay Dev%ld %s %s - Master (RSPduo sample rate=8Mhz)", results.size(), modelName.c_str(), rspDevs[i].SerNo);
+@@ -145,7 +145,7 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
+       if (rspDevs[i].rspDuoMode & sdrplay_api_RspDuoMode_Slave)
+       {
+          dev["mode"] = "SL";
+-         const bool modeMatch = args.count("mode") == 0 or args.at("mode") == dev["mode"];
++         const bool modeMatch = args.count("mode") == 0 || args.at("mode") == dev["mode"];
+          if (modeMatch)
+          {
+             sprintf_s(lblstr, sizeof(lblstr), "SDRplay Dev%ld %s %s - Slave", results.size(), modelName.c_str(), rspDevs[i].SerNo);
+diff --git a/Settings.cpp b/Settings.cpp
+index 86f8b66..838bcf8 100644
+--- a/Settings.cpp
++++ b/Settings.cpp
+@@ -2082,7 +2082,7 @@ void SoapySDRPlay::selectDevice(sdrplay_api_TunerSelectT tuner,
+     unsigned devIdx = SDRPLAY_MAX_DEVICES;
+     for (unsigned int i = 0; i < nDevs; i++)
+     {
+-        if (not rspDevs[i].valid) continue;
++        if (!rspDevs[i].valid) continue;
+         if (rspDevs[i].SerNo == serNo) devIdx = i;
+     }
+     if (devIdx == SDRPLAY_MAX_DEVICES) {
+diff --git a/Streaming.cpp b/Streaming.cpp
+index 689c14c..8d3dda2 100644
+--- a/Streaming.cpp
++++ b/Streaming.cpp
+@@ -237,7 +237,7 @@ SoapySDR::Stream *SoapySDRPlay::setupStream(const int direction,
+     size_t nchannels = device.hwVer == SDRPLAY_RSPduo_ID && device.rspDuoMode == sdrplay_api_RspDuoMode_Dual_Tuner ? 2 : 1;
+ 
+     // check the channel configuration
+-    if (channels.size() > 1 or (channels.size() > 0 and channels.at(0) >= nchannels))
++    if (channels.size() > 1 || (channels.size() > 0 && channels.at(0) >= nchannels))
+     {
+        throw std::runtime_error("setupStream invalid channel selection");
+     }

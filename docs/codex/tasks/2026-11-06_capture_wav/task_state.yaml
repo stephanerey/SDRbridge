@@ -1,0 +1,13 @@
+objective: "Ajouter les captures SDR++ WAV et HDSDR WAV avec une boîte de sauvegarde native"
+status: done
+scope:
+  - "Conserver SigMF 1.2.6"
+  - "Ajouter SDR++ WAV PCM int16 stéréo avec fréquence dans le nom"
+  - "Ajouter HDSDR WAV PCM int16 stéréo avec chunk auxi"
+  - "Proposer C:\\Projets\\SDRBridge\\Captures dans la boîte Enregistrer sous"
+proof:
+  tests: "63/63"
+  ui: "instance simulée capture-qa, dialogue Windows natif, capture SDR++ finalisée"
+remaining:
+  - "Qualifier la lecture des fichiers produits directement dans SDR++ et HDSDR"
+  - "Ajouter une rotation si des captures WAV de plus de 4 Gio sont requises"

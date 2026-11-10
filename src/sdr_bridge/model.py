@@ -81,8 +81,12 @@ class RadioConfig:
             raise ValueError("center_frequency_hz out of supported bridge range")
         if not 1 <= self.sample_rate_sps <= 20_000_000:
             raise ValueError("sample_rate_sps out of supported bridge range")
-        if not 1 <= self.bandwidth_hz <= self.sample_rate_sps:
-            raise ValueError("bandwidth_hz must be positive and <= sample_rate_sps")
+        # The tuner/IF filter is a hardware setting distinct from the complex
+        # IQ sample rate. Some receivers expose only discrete filters (the
+        # RSP1A jumps from 1.536 to 5 MHz), so the closest useful filter may be
+        # slightly wider than the requested sample rate.
+        if not 1 <= self.bandwidth_hz <= 20_000_000:
+            raise ValueError("bandwidth_hz out of supported bridge range")
         if not 0 <= self.gain_reduction_db <= 100:
             raise ValueError("gain_reduction_db out of range")
         if self.revision < 1:
@@ -122,12 +126,20 @@ class DeviceCapabilities:
     agc_available: bool = False
     formats: tuple[SampleFormat, ...] = (SampleFormat.CS16,)
     read_revision: int = 1
+    sample_rate_ranges_sps: tuple[tuple[float, float, float], ...] = ()
+    bandwidth_ranges_hz: tuple[tuple[float, float, float], ...] = ()
+    gain_values: Mapping[str, float] = field(default_factory=dict)
+    gain_steps: Mapping[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             **asdict(self),
             "formats": [item.value for item in self.formats],
             "gain_ranges": {key: list(value) for key, value in self.gain_ranges.items()},
+            "sample_rate_ranges_sps": [list(value) for value in self.sample_rate_ranges_sps],
+            "bandwidth_ranges_hz": [list(value) for value in self.bandwidth_ranges_hz],
+            "gain_values": dict(self.gain_values),
+            "gain_steps": dict(self.gain_steps),
         }
 
 

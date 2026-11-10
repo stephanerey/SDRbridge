@@ -12,6 +12,7 @@ from sdr_bridge.dsp import (
     DSPPipeline,
     StreamingRationalResampler,
     complex_to_payload,
+    design_integer_decimator_filter,
     design_resampler_filter,
     payload_to_complex,
 )
@@ -20,13 +21,14 @@ from sdr_bridge.model import (
     IQBlock,
     RadioConfig,
     SampleFormat,
+    StreamProfile,
     TimeDomain,
     TimestampOrigin,
 )
 from sdr_bridge.profiles import PipelinePool, ProfileRegistry
 from sdr_bridge.rf_profiles import RFProfileSet, RFRule
 from sdr_bridge.ring import RingReader, SharedIQRing
-from sdr_bridge.source import SimulatedSource
+from sdr_bridge.source import SimulatedSource, SourceChunk
 
 
 def _ring_reader_process(descriptor, ready, result):
@@ -51,6 +53,59 @@ def _ring_reader_process(descriptor, ready, result):
 
 
 class CoreLifecycleTests(unittest.TestCase):
+    def test_master_dispatch_is_not_blocked_by_slow_client_dsp(self):
+        bridge = SDRBridge(
+            SimulatedSource(block_samples=4096),
+            RadioConfig(sample_rate_sps=10_000_000, bandwidth_hz=8_000_000),
+            block_samples=4096,
+            slots=16,
+            source_queue_blocks=16,
+        )
+        original_process = bridge._pipelines.process
+
+        def slow_process(block):
+            time.sleep(0.05)
+            original_process(block)
+
+        bridge._pipelines.process = slow_process
+        try:
+            bridge._start_dispatcher()
+            payload = memoryview(bytes(4096 * SampleFormat.CS16.bytes_per_iq))
+            for index in range(6):
+                bridge._on_source_chunk(SourceChunk(
+                    payload, 4096, index * 4096, time.monotonic_ns(),
+                    TimeDomain.HOST_MONOTONIC, TimestampOrigin.HOST_OBSERVATION,
+                ))
+            deadline = time.monotonic() + 0.5
+            while bridge.blocks_written < 6 and time.monotonic() < deadline:
+                time.sleep(0.005)
+            self.assertEqual(bridge.blocks_written, 6)
+            self.assertLess(bridge.dsp_blocks_processed, bridge.blocks_written)
+            self.assertEqual(bridge.source_queue_drops, 0)
+        finally:
+            bridge._stop_dispatcher()
+            bridge.close()
+
+    def test_measured_rate_uses_short_current_interval_after_rate_change(self):
+        bridge = SDRBridge(
+            SimulatedSource(block_samples=4096),
+            RadioConfig(sample_rate_sps=2_000_000, bandwidth_hz=1_536_000),
+            block_samples=4096,
+            slots=16,
+        )
+        try:
+            bridge.start()
+            time.sleep(0.8)
+            self.assertAlmostEqual(bridge.status()["sample_rate_measured"], 2_000_000, delta=250_000)
+            bridge.apply_config(
+                bridge.config.revision,
+                {"sample_rate_sps": 192_000, "bandwidth_hz": 192_000},
+            )
+            time.sleep(0.8)
+            self.assertAlmostEqual(bridge.status()["sample_rate_measured"], 192_000, delta=35_000)
+        finally:
+            bridge.close()
+
     def test_100_cycles_and_stale_revision(self):
         bridge = SDRBridge(SimulatedSource(block_samples=256), block_samples=256, slots=8)
         try:
@@ -140,6 +195,41 @@ class CoreLifecycleTests(unittest.TestCase):
                 bridge.unregister_client(client_id)
             bridge.close()
 
+    def test_stop_start_keeps_master_and_profile_ring_sequences_monotone(self):
+        """Existing readers resume immediately after an RX stop/start cycle."""
+        bridge = SDRBridge(SimulatedSource(block_samples=512), block_samples=512, slots=32)
+        master_id = profile_id = None
+        try:
+            bridge.start()
+            master_id, master = bridge.register_client("master-restart")
+            profile_id, profile = bridge.register_client("profile-restart", "antrack-192k", 1)
+
+            deadline = time.monotonic() + 1.5
+            while bridge._sequence < 1_000 and time.monotonic() < deadline:
+                time.sleep(0.005)
+            before_master = master.read_latest(0.2)
+            before_profile = profile.read_latest(0.2)
+            self.assertIsNotNone(before_master)
+            self.assertIsNotNone(before_profile)
+
+            bridge.stop()
+            previous_epoch = bridge.epoch
+            bridge.start()
+            after_master = master.read(0.2)
+            after_profile = profile.read(0.2)
+
+            self.assertIsNotNone(after_master)
+            self.assertIsNotNone(after_profile)
+            self.assertGreater(bridge.epoch, previous_epoch)
+            self.assertGreater(after_master.sequence, before_master.sequence)
+            self.assertGreater(after_profile.sequence, before_profile.sequence)
+        finally:
+            if master_id:
+                bridge.unregister_client(master_id)
+            if profile_id:
+                bridge.unregister_client(profile_id)
+            bridge.close()
+
 
 class RingV2Tests(unittest.TestCase):
     def test_layout_and_multiprocess_wrap_are_coherent(self):
@@ -206,6 +296,71 @@ class DSPTests(unittest.TestCase):
             self.assertEqual(len(whole), len(partitioned))
             np.testing.assert_allclose(whole, partitioned, rtol=2e-5, atol=2e-6)
 
+    def test_integer_decimator_targets_and_high_rate_multistage_partition_invariance(self):
+        sos, metrics = design_integer_decimator_filter(10_000_000, 5)
+        frequencies, response = signal.sosfreqz(sos, worN=262144)
+        normalized = frequencies / np.pi
+        passband = np.abs(response[normalized <= 0.8 / 5])
+        stopband = np.abs(response[normalized >= 1.0 / 5])
+        ripple = float(np.ptp(20.0 * np.log10(np.maximum(passband, 1e-300))))
+        attenuation = float(-20.0 * np.log10(max(float(np.max(stopband)), 1e-300)))
+        self.assertLessEqual(ripple, metrics.passband_ripple_db + 1e-6)
+        self.assertGreaterEqual(attenuation, metrics.stopband_attenuation_db - 1e-6)
+
+        rng = np.random.default_rng(2)
+        data = (rng.standard_normal(50000) + 1j * rng.standard_normal(50000)).astype(np.complex64) * .01
+        whole_resampler = StreamingRationalResampler(10_000_000, 96_000)
+        self.assertIsNotNone(whole_resampler._integer_stage)
+        self.assertIsNotNone(whole_resampler._final_stage)
+        whole = whole_resampler.process(data)
+        streaming = StreamingRationalResampler(10_000_000, 96_000)
+        parts = []
+        offset = 0
+        random.seed(2)
+        while offset < len(data):
+            size = random.randint(1, 997)
+            parts.append(streaming.process(data[offset:offset + size]))
+            offset += size
+        partitioned = np.concatenate(parts)
+        self.assertEqual(len(whole), len(partitioned))
+        np.testing.assert_allclose(whole, partitioned, rtol=3e-5, atol=3e-6)
+
+    def test_high_rate_fractional_decimator_is_compact_filtered_and_partition_invariant(self):
+        input_rate = 10_000_000
+        output_rate = 4_000_000
+        optimized = StreamingRationalResampler(input_rate, output_rate)
+        self.assertIsNotNone(optimized._prefilter_sos)
+        self.assertLess(len(optimized.taps), 64)
+        self.assertLessEqual(optimized.characterization.passband_ripple_db, .1)
+        self.assertGreaterEqual(optimized.characterization.stopband_attenuation_db, 80.0)
+
+        rng = np.random.default_rng(3)
+        data = (
+            rng.standard_normal(100_000) + 1j * rng.standard_normal(100_000)
+        ).astype(np.complex64) * .01
+        whole = optimized.process(data)
+        streaming = StreamingRationalResampler(input_rate, output_rate)
+        parts = []
+        offset = 0
+        random.seed(3)
+        while offset < len(data):
+            size = random.randint(1, 2047)
+            parts.append(streaming.process(data[offset:offset + size]))
+            offset += size
+        partitioned = np.concatenate(parts)
+        self.assertEqual(len(whole), len(partitioned))
+        np.testing.assert_allclose(whole, partitioned, rtol=3e-5, atol=3e-6)
+
+        sample_indexes = np.arange(200_000)
+        pass_tone = np.exp(2j * np.pi * 1_500_000 * sample_indexes / input_rate).astype(np.complex64)
+        stop_tone = np.exp(2j * np.pi * 2_500_000 * sample_indexes / input_rate).astype(np.complex64)
+        pass_output = StreamingRationalResampler(input_rate, output_rate).process(pass_tone)
+        stop_output = StreamingRationalResampler(input_rate, output_rate).process(stop_tone)
+        pass_amplitude = float(np.median(np.abs(pass_output[2000:])))
+        stop_amplitude = float(np.median(np.abs(stop_output[2000:])))
+        self.assertGreater(pass_amplitude, .98)
+        self.assertLess(stop_amplitude / pass_amplitude, 1e-4)
+
     def test_pipeline_pool_mutualizes_equivalent_profiles(self):
         registry = ProfileRegistry()
         pool = PipelinePool("source-a", 2_000_000, SampleFormat.CS16)
@@ -221,6 +376,77 @@ class DSPTests(unittest.TestCase):
         pool.unsubscribe(token2)
         self.assertEqual(pool.pipeline_count, 0)
 
+    def test_pipeline_pool_cascades_lower_rates_from_nearest_shared_parent(self):
+        registry = ProfileRegistry()
+        pool = PipelinePool("source-a", 10_000_000, SampleFormat.CS16)
+        master_outputs = []
+        qmap_outputs = []
+        pool.subscribe(registry.get("master-cs16", 1), master_outputs.append)
+        pool.subscribe(registry.get("antrack-96k", 1), qmap_outputs.append)
+        snapshots = {item["output_rate_sps"]: item for item in pool.snapshot()}
+        self.assertEqual(snapshots[2_000_000]["input_rate_sps"], 10_000_000)
+        self.assertEqual(snapshots[96_000]["input_rate_sps"], 2_000_000)
+        self.assertEqual(snapshots[96_000]["shared_parent_rate_sps"], 2_000_000)
+
+        samples = np.zeros((16384, 2), dtype="<i2")
+        block = IQBlock(
+            "source-a", 1, 0, 0, 16384, 10_000_000, 144_300_000, 1,
+            SampleFormat.CS16, 0, TimeDomain.UNKNOWN,
+            TimestampOrigin.HOST_OBSERVATION, Discontinuity.NONE, None,
+            memoryview(samples.tobytes()),
+        )
+        pool.process(block)
+        self.assertEqual(master_outputs[-1].sample_rate_sps, 2_000_000)
+        self.assertEqual(qmap_outputs[-1].sample_rate_sps, 96_000)
+
+    def test_high_rate_parallel_pool_cascades_profiles_on_stage_workers(self):
+        registry = ProfileRegistry()
+        pool = PipelinePool(
+            "source-a",
+            10_000_000,
+            SampleFormat.CS16,
+            parallel_workers=3,
+        )
+        outputs_4m = []
+        outputs_96k = []
+        profile_4m = StreamProfile(
+            "udp-4m",
+            1,
+            4_000_000,
+            SampleFormat.CS16,
+            "sdbu_v2",
+            name="UDP 4 MS/s",
+        )
+        try:
+            pool.subscribe(profile_4m, outputs_4m.append)
+            pool.subscribe(registry.get("antrack-96k", 1), outputs_96k.append)
+            snapshots = {item["output_rate_sps"]: item for item in pool.snapshot()}
+            self.assertEqual(snapshots[4_000_000]["input_rate_sps"], 10_000_000)
+            self.assertEqual(snapshots[96_000]["input_rate_sps"], 4_000_000)
+            self.assertIsNone(snapshots[4_000_000]["shared_parent_rate_sps"])
+            self.assertEqual(snapshots[96_000]["shared_parent_rate_sps"], 4_000_000)
+
+            samples = np.zeros((32768, 2), dtype="<i2")
+            block = IQBlock(
+                "source-a", 1, 0, 0, 32768, 10_000_000, 144_300_000, 1,
+                SampleFormat.CS16, 0, TimeDomain.UNKNOWN,
+                TimestampOrigin.HOST_OBSERVATION, Discontinuity.NONE, None,
+                memoryview(samples.tobytes()),
+            )
+            pool.process(block)
+            deadline = time.monotonic() + 1.0
+            while (not outputs_4m or not outputs_96k) and time.monotonic() < deadline:
+                time.sleep(0.005)
+            self.assertEqual(outputs_4m[-1].sample_rate_sps, 4_000_000)
+            self.assertEqual(outputs_96k[-1].sample_rate_sps, 96_000)
+            snapshots = {item["output_rate_sps"]: item for item in pool.snapshot()}
+            self.assertEqual(snapshots[4_000_000]["parallel_workers"], 2)
+            self.assertEqual(snapshots[4_000_000]["parallel_root_rate_sps"], 4_000_000)
+            self.assertEqual(snapshots[96_000]["parallel_root_rate_sps"], 4_000_000)
+            self.assertEqual(snapshots[96_000]["parallel_queue_drops"], 0)
+        finally:
+            pool.close()
+
 
 class RFProfileTests(unittest.TestCase):
     def test_boundaries_ambiguity_and_manual_suspend(self):
@@ -235,6 +461,18 @@ class RFProfileTests(unittest.TestCase):
         self.assertIsNone(profiles.select(199, "dev"))
         profiles.resume()
         self.assertEqual(profiles.select(199, "dev").rule_id, "low")
+
+    def test_hysteresis_and_serialization_cover_operational_fields(self):
+        rule = RFRule(
+            "vhf", 144_000_000, 146_000_000, 20, True, "rsp1a", "Antenna A",
+            {"gain_reduction_db": 38, "lna_state": 3}, False, 1_536_000, 25_000,
+        )
+        restored = RFRule.from_dict(rule.to_dict())
+        self.assertEqual(restored, rule)
+        profiles = RFProfileSet((rule, RFRule("uhf", 146_000_000, 148_000_000, 30)))
+        self.assertEqual(profiles.select(145_999_000, "rsp1a").rule_id, "vhf")
+        self.assertEqual(profiles.select(146_010_000, "rsp1a", "vhf").rule_id, "vhf")
+        self.assertEqual(profiles.select(146_030_000, "rsp1a", "vhf").rule_id, "uhf")
 
 
 if __name__ == "__main__":

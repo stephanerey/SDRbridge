@@ -1,0 +1,12 @@
+objective: "Réparer le blocage des lecteurs après Stop/Play et retour d'une source fichier vers le SDR"
+status: done
+scope:
+  - "Conserver les rings et clients existants"
+  - "Maintenir une séquence de publication monotone sur les rings master et profil"
+  - "Conserver les frontières d'époque et remettre first_sample_index à zéro"
+  - "Restaurer la source effective dans la GUI si une sélection matérielle échoue"
+proof:
+  targeted: "Stop/Play master + profil 192 kS/s et fichier -> Stop -> source simulée -> Play"
+  tests: "65/65 unittest OK"
+remaining:
+  - "Recette réelle RSP1A après redémarrage contrôlé de l'instance active"

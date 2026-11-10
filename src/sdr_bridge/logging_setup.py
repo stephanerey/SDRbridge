@@ -89,13 +89,21 @@ class LoggingSession:
     _old_thread_hook: object | None = None
     _sys_hook: object | None = None
     _thread_hook: object | None = None
+    _owner_logger: logging.Logger | None = None
+    _old_owner_level: int = logging.NOTSET
+    _old_owner_propagate: bool = True
     _closed: bool = False
 
     def set_level(self, level: str | int) -> None:
         numeric = getattr(logging, level.upper()) if isinstance(level, str) else int(level)
-        logging.getLogger().setLevel(numeric)
+        if self._owner_logger is not None:
+            self._owner_logger.setLevel(numeric)
         for handler in self.handlers:
             handler.setLevel(numeric)
+
+    def flush(self) -> None:
+        for handler in self.handlers:
+            handler.flush()
 
     def install_exception_hooks(self, *, chain: bool = True) -> None:
         logger = logging.getLogger("sdr_bridge.crash")
@@ -143,15 +151,19 @@ class LoggingSession:
             self._fault_stream.flush()
             self._fault_stream.close()
             self._fault_stream = None
-        root = logging.getLogger()
+        owner = self._owner_logger
         for handler in self.handlers:
-            if handler in root.handlers:
-                root.removeHandler(handler)
+            if owner is not None and handler in owner.handlers:
+                owner.removeHandler(handler)
             try:
                 handler.flush()
             finally:
                 handler.close()
         self.handlers.clear()
+        if owner is not None:
+            owner.setLevel(self._old_owner_level)
+            owner.propagate = self._old_owner_propagate
+        self._owner_logger = None
 
 
 def configure_logging(
@@ -168,8 +180,17 @@ def configure_logging(
 ) -> LoggingSession:
     run_id = run_id or str(uuid.uuid4())
     formatter = JsonLogFormatter(run_id)
+    # Keep SDRbridge logging isolated from the root logger. Native SDR/Qt
+    # dependencies are free to reconfigure the root logger while they load;
+    # attaching our handlers there made the persistent log disappear during
+    # otherwise healthy GUI sessions.
     root = logging.getLogger()
-    _remove_owned_handlers(root)
+    owner = logging.getLogger("sdr_bridge")
+    _remove_owned_handlers(root)  # clean handlers created by older releases
+    _remove_owned_handlers(owner)
+    old_owner_level = owner.level
+    old_owner_propagate = owner.propagate
+    owner.propagate = False
     handlers: list[logging.Handler] = []
     selected_dir: Path | None = Path(log_dir).expanduser() if log_dir is not None else default_log_directory(instance_name)
     log_path: Path | None = None
@@ -195,7 +216,7 @@ def configure_logging(
             )
             file_handler.setFormatter(formatter)
             file_handler._sdrbridge_owned = True  # type: ignore[attr-defined]
-            root.addHandler(file_handler)
+            owner.addHandler(file_handler)
             handlers.append(file_handler)
         except OSError as exc:
             directory_error = directory_error or exc
@@ -204,9 +225,17 @@ def configure_logging(
         stream_handler = logging.StreamHandler(sys.stderr)
         stream_handler.setFormatter(formatter)
         stream_handler._sdrbridge_owned = True  # type: ignore[attr-defined]
-        root.addHandler(stream_handler)
+        owner.addHandler(stream_handler)
         handlers.append(stream_handler)
-    session = LoggingSession(run_id, log_path, fault_path, handlers)
+    session = LoggingSession(
+        run_id,
+        log_path,
+        fault_path,
+        handlers,
+        _owner_logger=owner,
+        _old_owner_level=old_owner_level,
+        _old_owner_propagate=old_owner_propagate,
+    )
     session.set_level(level)
     session.install_exception_hooks(chain=chain_exception_hooks)
     if enable_fault_handler and selected_dir is not None and not faulthandler.is_enabled():
@@ -233,6 +262,9 @@ def configure_logging(
             },
         },
     )
+    # FileHandler flushes each record, but doing it explicitly here also makes
+    # LOGGING_READY a startup health check before any native dependency loads.
+    session.flush()
     if directory_error is not None:
         logger.warning(
             "primary log directory was unavailable; fallback applied",

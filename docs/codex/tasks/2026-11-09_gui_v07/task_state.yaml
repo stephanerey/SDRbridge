@@ -1,0 +1,25 @@
+objective: "Implémenter l'interface native Qt v0.7 à partir des maquettes validées"
+status: done
+scope:
+  - "Conserver la barre de titre Windows native et appliquer un thème sombre proche des maquettes"
+  - "Limiter la navigation à Radio, Clients & Streams, RF Profiles et Captures"
+  - "Déplacer Diagnostics dans une fenêtre modale accessible depuis les réglages"
+  - "Ajouter Spectrum, Waterfall et Split, également synchronisés en mode compact"
+  - "Unifier les consommateurs locaux et destinations UDP et corriger leur compteur compact"
+  - "Rendre les profils RF persistants et opérationnels avec priorité et hystérésis"
+  - "Proposer Français et English dans les paramètres"
+  - "Lire les plages Soapy modernes et construire les contrôles matériels à partir des capacités effectives"
+  - "Mapper IFGR/RFGR du RSP1A sur deux contrôles de réduction à sens visuel inversé"
+  - "Verrouiller les réglages matériels pendant la lecture d'un fichier IQ"
+  - "Supprimer les informations Radio redondantes et corriger la couleur Start/Stop"
+  - "Alléger la vue compacte, rendre son bouton Play/Stop bidirectionnel et afficher un état ambre pendant les commandes SDR asynchrones"
+  - "Sélectionner Waterfall par défaut et relire automatiquement les capacités RSP1A absentes au premier rendu"
+  - "Créditer Stephane REY F1TJJ et Philippe Borghini F5JWF dans About"
+proof:
+  tests: "78/78 unittest OK, dont axes absolus VFO+offset à quatre décimales sur Spectre/Cascade/Partagé"
+  hardware_controls: "RSP1A réel: lecture de 19 débits, 8 bandes, IFGR/RFGR/AGC; écriture et readback validés"
+  visual: "Captures Qt hors écran françaises avec curseurs Max/Min empilés et remplissage spectral corrigé dans docs/codex/tasks/2026-11-09_spectrum_fill_sliders/ui"
+  continuity: "Le flux simulé progresse de 528 à 651 blocs pendant le passage en mode compact"
+remaining:
+  - "Recette visuelle native Windows avec les DPI et dimensions de l'écran opérateur"
+  - "Validation opérateur native de la bascule Français/English avant gel de la GUI"

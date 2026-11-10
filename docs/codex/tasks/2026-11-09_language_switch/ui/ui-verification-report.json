@@ -1,0 +1,23 @@
+{
+  "platform": "offscreen",
+  "scale_factor": "1",
+  "language": "fr",
+  "normal": "C:\\Projets\\SDRBridge\\docs\\codex\\tasks\\2026-11-09_language_switch\\ui\\radio-spectrum.png",
+  "waterfall": "C:\\Projets\\SDRBridge\\docs\\codex\\tasks\\2026-11-09_language_switch\\ui\\radio-waterfall.png",
+  "compact": "C:\\Projets\\SDRBridge\\docs\\codex\\tasks\\2026-11-09_language_switch\\ui\\compact.png",
+  "outputs": "C:\\Projets\\SDRBridge\\docs\\codex\\tasks\\2026-11-09_language_switch\\ui\\clients-streams.png",
+  "rf_profiles": "C:\\Projets\\SDRBridge\\docs\\codex\\tasks\\2026-11-09_language_switch\\ui\\rf-profiles.png",
+  "captures": "C:\\Projets\\SDRBridge\\docs\\codex\\tasks\\2026-11-09_language_switch\\ui\\captures.png",
+  "normal_size": [
+    1280,
+    800
+  ],
+  "compact_target": [
+    396,
+    112
+  ],
+  "blocks_before_toggle": 524,
+  "blocks_after_toggle": 646,
+  "stream_continued": true,
+  "note": "Rendu Qt offscreen automatis\u00e9 ; inspection Windows native/DPI reste une preuve humaine s\u00e9par\u00e9e."
+}

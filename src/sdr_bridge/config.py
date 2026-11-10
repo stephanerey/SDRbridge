@@ -39,7 +39,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "token_file": None,
         "mdns": False,
     },
-    "buffers": {"ring_slots": 64, "block_samples": 16384, "source_queue_blocks": 256, "max_clients": None},
+    "buffers": {"ring_slots": 64, "block_samples": 32768, "source_queue_blocks": 256, "max_clients": None},
     "auto_connect": False,
     "auto_start": False,
     "udp_destination": None,

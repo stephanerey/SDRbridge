@@ -10,6 +10,7 @@ release-v0.2/
 release-v0.3/
 release-v0.4/
 release-v0.5/
+release-v0.6/
 final-release/
 debug-release/
 debug2/
@@ -26,3 +27,7 @@ output/
 docs/codex/upgrade_backups/
 /clients/sdrpp_sdbu_source/.deps/
 /IQ_Recording/
+/tmp/
+/$runtimeRoot/
+/Captures/*
+!/Captures/.gitkeep

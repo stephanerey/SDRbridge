@@ -1,5 +1,12 @@
 # Lots de réalisation — v0.3
 
+## Suite ANTRACK
+
+- isoler la prochaine version d'ANTRACK de PothosSDR et des DLL de SDRbridge ;
+- construire et épingler sa propre combinaison SoapySDR/SoapySDRPlay3 contre l'API SDRplay 3.15 ;
+- reprendre le même contrôle des runtimes Visual C++, l'inventaire matériel et les essais RSP1A/RSPdx ;
+- vérifier la coexistence ANTRACK + SDRbridge + SDR++ sans modification manuelle du `PATH` ni copie de DLL entre applications.
+
 BASE est effectué ; les autres lots restent proposés jusqu'au prompt de lancement. Statuts officiels : `docs/codex/SR_LOTS.yaml`. [S6](../specs/06_IMPLEMENTATION_BASELINE.md) tranche les anciennes mentions « à définir/valider » : ring v2 versionné, FIR, versions, SDK, protocoles tiers, SigMF, budgets et schémas. Les actions historiques ci-dessous sont à lire avec ces décisions, sans refaire la préparation.
 
 ## SDB-BASE-001 — Référence applicative et méthode

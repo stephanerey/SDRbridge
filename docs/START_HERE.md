@@ -6,8 +6,9 @@
 
 1. `AGENTS.md` à la racine.
 2. [CURRENT_STATE](work/CURRENT_STATE.md), pour connaître les faits et la prochaine action.
-3. [BACKLOG](work/BACKLOG.md), uniquement le lot demandé et ses dépendances.
-4. Les décisions mentionnées par le lot dans [DECISIONS](product/DECISIONS.md), puis les spécifications utiles ci-dessous.
+3. [Vue technique illustrée 0.6](TECHNICAL_OVERVIEW.md), pour la topologie et les preuves GUI de la version figée.
+4. [BACKLOG](work/BACKLOG.md), uniquement le lot demandé et ses dépendances.
+5. Les décisions mentionnées par le lot dans [DECISIONS](product/DECISIONS.md), puis les spécifications utiles ci-dessous.
 
 Le [PRD](product/PRD.md) est une carte des exigences ; les comportements détaillés sont répartis par sujet. Ne pas charger tous les documents à chaque tâche.
 

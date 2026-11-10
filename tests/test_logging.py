@@ -78,6 +78,36 @@ class LoggingTests(unittest.TestCase):
             self.assertTrue(any(item["code"] == "CONFIG_INVALID" for item in records))
             self.assertTrue(any("invalid JSON file" in item.get("exception", "") for item in records))
 
+    def test_native_dependency_root_reconfiguration_does_not_disable_file_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = configure_logging(
+                "INFO",
+                directory,
+                run_id="isolated-test",
+                enable_fault_handler=False,
+                stream=False,
+                chain_exception_hooks=False,
+            )
+            root = logging.getLogger()
+            old_handlers = list(root.handlers)
+            old_level = root.level
+            try:
+                # Some native dependencies replace the process-wide root
+                # configuration during initialization. SDRbridge records must
+                # remain attached to the package logger.
+                root.handlers.clear()
+                root.setLevel(logging.CRITICAL)
+                logging.getLogger("sdr_bridge.test").info(
+                    "record after root reconfiguration",
+                    extra={"code": "ROOT_RECONFIGURATION_TEST"},
+                )
+            finally:
+                session.close()
+                root.handlers[:] = old_handlers
+                root.setLevel(old_level)
+            records = read_json_lines([Path(directory) / "sdrbridge.log"])
+            self.assertTrue(any(item["code"] == "ROOT_RECONFIGURATION_TEST" for item in records))
+
     def test_simulated_runtime_records_clean_lifecycle_and_metrics(self):
         with tempfile.TemporaryDirectory() as directory:
             session = configure_logging(

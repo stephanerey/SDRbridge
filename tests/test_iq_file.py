@@ -102,9 +102,20 @@ class IQFileTests(unittest.TestCase):
                         break
                 self.assertIsNotNone(decoded)
                 self.assertEqual(decoded.sample_rate_sps, 192_000)
+                live.bridge.stop()
+                previous_sequence = live.bridge._sequence
                 live.select_source_device(SimulatedSource.DEVICE_ID)
+                self.assertFalse(live.bridge.running)
+                self.assertIs(live.bridge.source, original_source)
+                self.assertEqual(live.bridge.device_id, SimulatedSource.DEVICE_ID)
+                self.assertEqual(live.bridge._sequence, previous_sequence)
+                live.bridge.start()
                 self.assertTrue(live.bridge.running)
                 self.assertIs(live.bridge.source, original_source)
+                deadline = time.monotonic() + 1.0
+                while live.bridge._sequence == previous_sequence and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertGreater(live.bridge._sequence, previous_sequence)
             finally:
                 live.close()
                 receiver.close()

@@ -19,13 +19,19 @@ class _Digit(QLabel):
     def __init__(self, step_hz: int, parent=None) -> None:
         super().__init__("0", parent)
         self.step_hz = int(step_hz)
+        self._dimmed = False
+        self._editable = True
         self.setAlignment(Qt.AlignCenter)
         self.setMinimumWidth(23)
         self.setCursor(Qt.PointingHandCursor)
         self._set_style(False)
 
     def _set_style(self, dimmed: bool) -> None:
-        color = "#7f8a94" if dimmed else "#152432"
+        self._dimmed = bool(dimmed)
+        if not self._editable:
+            color = "#526574"
+        else:
+            color = "#7f8a94" if dimmed else "#f4fbff"
         self.setStyleSheet(
             f"font-size: 34px; font-weight: 700; color: {color}; "
             "padding: 0 1px;"
@@ -34,7 +40,15 @@ class _Digit(QLabel):
     def setDimmed(self, dimmed: bool) -> None:  # noqa: N802
         self._set_style(dimmed)
 
+    def setEditable(self, editable: bool) -> None:  # noqa: N802
+        self._editable = bool(editable)
+        self.setCursor(Qt.PointingHandCursor if editable else Qt.ArrowCursor)
+        self._set_style(self._dimmed)
+
     def wheelEvent(self, event) -> None:  # noqa: N802
+        if not self._editable:
+            event.ignore()
+            return
         delta = event.angleDelta().y()
         if delta:
             self.stepRequested.emit(self.step_hz if delta > 0 else -self.step_hz)
@@ -84,6 +98,12 @@ class FrequencyControlWidget(QWidget):
         self._min_hz = max(1, int(minimum_hz))
         self._max_hz = max(self._min_hz, int(maximum_hz))
         self.set_value_hz(self._value_hz)
+
+    def set_editable(self, editable: bool) -> None:
+        """Enable wheel tuning and show a disabled palette for fixed sources."""
+        self.setEnabled(bool(editable))
+        for digit in self._digits:
+            digit.setEditable(editable)
 
     def value_hz(self) -> int:
         return int(self._value_hz)

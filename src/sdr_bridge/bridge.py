@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import logging
+import os
 import queue
 import threading
 import time
@@ -18,7 +19,7 @@ from .model import (
     StreamProfile,
 )
 from .profiles import PipelinePool, ProfileRegistry
-from .dsp import design_resampler_filter
+from .dsp import StreamingRationalResampler
 from .ring import RingReader, SharedIQRing
 from .source import IQSource, SourceChunk
 
@@ -68,8 +69,16 @@ class SDRBridge:
         self.profiles = ProfileRegistry()
         for output_rate in (192_000, 96_000):
             if output_rate < self.config.sample_rate_sps:
-                design_resampler_filter(self.config.sample_rate_sps, output_rate)
-        self._pipelines = PipelinePool(source_id, self.config.sample_rate_sps, self.config.sample_format)
+                # Warm the exact multistage design used at runtime.  The old
+                # monolithic-FIR prewarm was both expensive and different from
+                # the optimized fractional path actually serving clients.
+                StreamingRationalResampler(self.config.sample_rate_sps, output_rate)
+        self._pipelines = PipelinePool(
+            source_id,
+            self.config.sample_rate_sps,
+            self.config.sample_format,
+            parallel_workers=min(4, os.cpu_count() or 1),
+        )
         self._clients: dict[str, ClientStats] = {}
         self._client_profile_keys: dict[str, tuple[str, int] | None] = {}
         self._profile_rings: dict[tuple[str, int], _ProfileRing] = {}
@@ -81,12 +90,16 @@ class SDRBridge:
         self._sequence = 0
         self._first_sample_index = 0
         self._source_queue: queue.Queue[tuple[SourceChunk, RadioConfig, int]] = queue.Queue(maxsize=source_queue_blocks)
+        self._dsp_queue: queue.Queue[IQBlock] = queue.Queue(maxsize=source_queue_blocks)
         self.source_queue_capacity = int(source_queue_blocks)
         self.source_queue_high_water = 0
         self._dispatch_stop = threading.Event()
         self._dispatch_thread: threading.Thread | None = None
+        self._dsp_stop = threading.Event()
+        self._dsp_thread: threading.Thread | None = None
         self._recovery_cancel = threading.Event()
         self._pending_source_drops = 0
+        self._pending_dsp_drops = 0
         self._closed = False
         self.started_ns = 0
         self.blocks_received = 0
@@ -94,12 +107,49 @@ class SDRBridge:
         self.blocks_written = 0
         self.samples_written = 0
         self.source_queue_drops = 0
+        self.source_losses = 0
         self.source_errors = 0
         self._next_drop_log_at = 0.0
         self.dispatch_processing_seconds = 0.0
         self.dispatch_processing_max_ms = 0.0
         self.dispatch_slow_blocks = 0
         self._next_slow_dispatch_log_at = 0.0
+        self.dsp_queue_drops = 0
+        self.dsp_queue_high_water = 0
+        self.dsp_blocks_processed = 0
+        self.dsp_processing_seconds = 0.0
+        self.dsp_processing_max_ms = 0.0
+        self.dsp_slow_blocks = 0
+        self.dsp_errors = 0
+        self._next_slow_dsp_log_at = 0.0
+        self._next_dsp_drop_log_at = 0.0
+        self._rate_interval_ns = 500_000_000
+        self._rate_interval_started_ns = 0
+        self._rate_interval_samples = 0
+        self._rate_last_write_ns = 0
+        self._sample_rate_measured = 0.0
+
+    def _reset_rate_measurement_locked(self) -> None:
+        self._rate_interval_started_ns = 0
+        self._rate_interval_samples = 0
+        self._rate_last_write_ns = 0
+        self._sample_rate_measured = 0.0
+
+    def _update_rate_measurement_locked(self, sample_count: int, now_ns: int) -> None:
+        # A short completed interval reflects the current acquisition rate.
+        # The former samples_written / time-since-start value was a cumulative
+        # average and could take minutes to converge after a 2 -> 10 MS/s
+        # reconfiguration.
+        if self._rate_interval_started_ns == 0:
+            self._rate_interval_started_ns = now_ns
+            self._rate_interval_samples = 0
+        self._rate_interval_samples += int(sample_count)
+        self._rate_last_write_ns = now_ns
+        elapsed_ns = now_ns - self._rate_interval_started_ns
+        if elapsed_ns >= self._rate_interval_ns:
+            self._sample_rate_measured = self._rate_interval_samples * 1_000_000_000.0 / elapsed_ns
+            self._rate_interval_started_ns = now_ns
+            self._rate_interval_samples = 0
 
     @property
     def state(self) -> LifecycleState:
@@ -137,7 +187,11 @@ class SDRBridge:
                 self.device_id = device_id
                 self.config = effective
                 self._epoch += 1
-                self._sequence = 0
+                # ``sequence`` is the publication cursor of the persistent
+                # SDBR ring.  Readers (including the ExtIO and ANTRACK
+                # adapters) keep their next cursor across a device switch, so
+                # moving it backwards would make them wait until the new
+                # producer catches up with the retired sequence.
                 self._first_sample_index = 0
             if running:
                 self.start()
@@ -231,6 +285,9 @@ class SDRBridge:
                 raise
 
     def _start_dispatcher(self) -> None:
+        self._dsp_stop.clear()
+        self._dsp_thread = threading.Thread(target=self._dsp_loop, name="sdr-dsp", daemon=True)
+        self._dsp_thread.start()
         self._dispatch_stop.clear()
         self._dispatch_thread = threading.Thread(target=self._dispatch_loop, name="sdr-dispatch", daemon=True)
         self._dispatch_thread.start()
@@ -246,9 +303,12 @@ class SDRBridge:
                     raise RuntimeError(f"cannot start from {self._state.value}")
                 self._state = LifecycleState.STARTING
                 self._epoch += 1
-                self._sequence = 0
+                # The epoch and sample index describe the new continuity
+                # interval; the ring publication sequence remains monotone
+                # for already attached readers.
                 self._first_sample_index = 0
                 self.started_ns = time.monotonic_ns()
+                self._reset_rate_measurement_locked()
                 self._recovery_cancel.clear()
             self._start_dispatcher()
             try:
@@ -270,14 +330,22 @@ class SDRBridge:
             if thread.is_alive():
                 raise RuntimeError("dispatch thread did not stop")
         self._dispatch_thread = None
+        self._dsp_stop.set()
+        dsp_thread = self._dsp_thread
+        if dsp_thread and dsp_thread is not threading.current_thread():
+            dsp_thread.join(timeout=2.0)
+            if dsp_thread.is_alive():
+                raise RuntimeError("DSP thread did not stop")
+        self._dsp_thread = None
 
     def _clear_source_queue(self) -> None:
-        while True:
-            try:
-                self._source_queue.get_nowait()
-                self._source_queue.task_done()
-            except queue.Empty:
-                return
+        for pending in (self._source_queue, self._dsp_queue):
+            while True:
+                try:
+                    pending.get_nowait()
+                    pending.task_done()
+                except queue.Empty:
+                    break
 
     def stop(self) -> None:
         self._recovery_cancel.set()
@@ -334,7 +402,9 @@ class SDRBridge:
                     with self._lock:
                         self.config = effective
                         self._epoch += 1
-                        self._sequence = 0
+                        # Keep the persistent ring cursor monotone across a
+                        # backend recovery.  Network encoders own their
+                        # separate, epoch-local packet counters.
                         self._first_sample_index = 0
                         self._pipelines.reconfigure(effective.sample_rate_sps, effective.sample_format)
                     self._start_dispatcher()
@@ -367,6 +437,7 @@ class SDRBridge:
                     self._pipelines.unsubscribe(shared.pipeline_token)
                     shared.ring.close(unlink=True)
                 self._profile_rings.clear()
+                self._pipelines.close()
                 self.ring.close(unlink=True)
                 self._closed = True
                 with self._lock:
@@ -389,8 +460,11 @@ class SDRBridge:
                 chunk.discontinuity is Discontinuity.SOURCE_LOSS and chunk.lost_samples is None
             ):
                 self._epoch += 1
-                self._sequence = 0
+                # A seek or unknown source loss starts a new epoch, but the
+                # shared-ring publication cursor must never move backwards.
                 self._first_sample_index = 0
+            if chunk.discontinuity is Discontinuity.SOURCE_LOSS:
+                self.source_losses += 1
             config, epoch = self.config, self._epoch
             self.blocks_received += 1
             self.samples_received += chunk.sample_count
@@ -488,13 +562,50 @@ class SDRBridge:
             )
             processing_started = time.perf_counter()
             self.ring.write(block)
-            self._pipelines.process(block)
+            try:
+                self._dsp_queue.put_nowait(block)
+                depth = self._dsp_queue.qsize()
+                with self._lock:
+                    self.dsp_queue_high_water = max(self.dsp_queue_high_water, depth)
+            except queue.Full:
+                # Keep latency bounded: discard the oldest pending DSP block,
+                # publish the newest one, and mark the gap on the next block
+                # consumed by the DSP worker.
+                try:
+                    dropped = self._dsp_queue.get_nowait()
+                    self._dsp_queue.task_done()
+                except queue.Empty:
+                    dropped = block
+                self._dsp_queue.put_nowait(block)
+                now_drop = time.monotonic()
+                with self._lock:
+                    self.dsp_queue_drops += 1
+                    self._pending_dsp_drops += dropped.sample_count
+                    total_dsp_drops = self.dsp_queue_drops
+                    should_log_dsp_drop = total_dsp_drops == 1 or now_drop >= self._next_dsp_drop_log_at
+                    if should_log_dsp_drop:
+                        self._next_dsp_drop_log_at = now_drop + 5.0
+                if should_log_dsp_drop:
+                    logger.warning(
+                        "DSP queue is full; oldest pending block was dropped",
+                        extra={
+                            "code": "DSP_QUEUE_DROP",
+                            "run_id": self.run_id,
+                            "source_id": self.source_id,
+                            "epoch": str(epoch),
+                            "details": {
+                                "dropped_blocks_total": total_dsp_drops,
+                                "queue_capacity_blocks": self.source_queue_capacity,
+                            },
+                        },
+                    )
             processing_seconds = time.perf_counter() - processing_started
             block_budget_seconds = block.sample_count / block.sample_rate_sps
             now = time.monotonic()
             with self._lock:
                 self.blocks_written += 1
                 self.samples_written += block.sample_count
+                self._update_rate_measurement_locked(block.sample_count, time.monotonic_ns())
                 self.dispatch_processing_seconds += processing_seconds
                 self.dispatch_processing_max_ms = max(self.dispatch_processing_max_ms, processing_seconds * 1000.0)
                 if processing_seconds > block_budget_seconds:
@@ -519,6 +630,66 @@ class SDRBridge:
                     },
                 )
             self._source_queue.task_done()
+
+    def _dsp_loop(self) -> None:
+        while not self._dsp_stop.is_set() or not self._dsp_queue.empty():
+            try:
+                block = self._dsp_queue.get(timeout=0.05)
+            except queue.Empty:
+                continue
+            with self._lock:
+                drops = self._pending_dsp_drops
+                self._pending_dsp_drops = 0
+            if drops:
+                block = replace(
+                    block,
+                    discontinuity=Discontinuity.DSP_DROP,
+                    lost_samples=drops + int(block.lost_samples or 0),
+                )
+            started = time.perf_counter()
+            failed = None
+            try:
+                self._pipelines.process(block)
+            except Exception as exc:
+                failed = exc
+            processing_seconds = time.perf_counter() - started
+            budget_seconds = block.sample_count / block.sample_rate_sps
+            now = time.monotonic()
+            with self._lock:
+                self.dsp_blocks_processed += 1
+                self.dsp_processing_seconds += processing_seconds
+                self.dsp_processing_max_ms = max(self.dsp_processing_max_ms, processing_seconds * 1000.0)
+                if processing_seconds > budget_seconds:
+                    self.dsp_slow_blocks += 1
+                if failed is not None:
+                    self.dsp_errors += 1
+                    self._last_error = str(failed)
+                should_log_slow = processing_seconds > budget_seconds * 2 and now >= self._next_slow_dsp_log_at
+                if should_log_slow:
+                    self._next_slow_dsp_log_at = now + 5.0
+                    queue_depth = self._dsp_queue.qsize()
+            if failed is not None:
+                logger.exception(
+                    "DSP pipeline processing failed",
+                    exc_info=(type(failed), failed, failed.__traceback__),
+                    extra={"code": "DSP_ERROR", "run_id": self.run_id, "source_id": self.source_id, "epoch": str(block.epoch)},
+                )
+            elif should_log_slow:
+                logger.warning(
+                    "DSP processing exceeded two block periods",
+                    extra={
+                        "code": "DSP_SLOW",
+                        "run_id": self.run_id,
+                        "source_id": self.source_id,
+                        "epoch": str(block.epoch),
+                        "details": {
+                            "processing_ms": processing_seconds * 1000.0,
+                            "block_budget_ms": budget_seconds * 1000.0,
+                            "queue_depth_blocks": queue_depth,
+                        },
+                    },
+                )
+            self._dsp_queue.task_done()
 
     def apply_config(self, expected_revision: int, requested: RadioConfig | dict) -> RadioConfig:
         with self._command_lock:
@@ -576,6 +747,7 @@ class SDRBridge:
                         or effective.sample_format is not current.sample_format
                     ):
                         self._pipelines.reconfigure(effective.sample_rate_sps, effective.sample_format)
+                        self._reset_rate_measurement_locked()
                 if requires_restart:
                     self._start_dispatcher()
                     self.source.start(self._on_source_chunk, self._on_source_error)
@@ -669,7 +841,10 @@ class SDRBridge:
 
     def status(self) -> dict:
         with self._lock:
-            elapsed = max(1, time.monotonic_ns() - self.started_ns) if self.started_ns else 1
+            measured_rate = self._sample_rate_measured
+            if self._rate_last_write_ns and time.monotonic_ns() - self._rate_last_write_ns > 1_000_000_000:
+                measured_rate = 0.0
+            pipeline_snapshot = self._pipelines.snapshot()
             return {
                 "run_id": getattr(self, "run_id", None),
                 "state": self._state.value,
@@ -687,12 +862,24 @@ class SDRBridge:
                 "source_queue_drops": self.source_queue_drops,
                 "source_queue_capacity": self.source_queue_capacity,
                 "source_queue_high_water": self.source_queue_high_water,
+                "source_losses": self.source_losses,
                 "source_errors": self.source_errors,
                 "dispatch_processing_average_ms": self.dispatch_processing_seconds * 1000.0 / self.blocks_written if self.blocks_written else 0.0,
                 "dispatch_processing_max_ms": self.dispatch_processing_max_ms,
                 "dispatch_slow_blocks": self.dispatch_slow_blocks,
+                "dsp_queue_drops": self.dsp_queue_drops,
+                "dsp_queue_capacity": self.source_queue_capacity,
+                "dsp_queue_high_water": self.dsp_queue_high_water,
+                "dsp_blocks_processed": self.dsp_blocks_processed,
+                "dsp_processing_average_ms": self.dsp_processing_seconds * 1000.0 / self.dsp_blocks_processed if self.dsp_blocks_processed else 0.0,
+                "dsp_processing_max_ms": self.dsp_processing_max_ms,
+                "dsp_slow_blocks": self.dsp_slow_blocks,
+                "dsp_errors": self.dsp_errors,
+                "profile_queue_drops": sum(
+                    int(item.get("parallel_queue_drops", 0)) for item in pipeline_snapshot
+                ),
                 "last_error": self._last_error,
-                "sample_rate_measured": self.samples_written * 1e9 / elapsed if self.running else 0.0,
+                "sample_rate_measured": measured_rate if self._state is LifecycleState.RUNNING else 0.0,
                 "clients": [item.to_dict() for item in self._clients.values()],
-                "pipelines": self._pipelines.snapshot(),
+                "pipelines": pipeline_snapshot,
             }

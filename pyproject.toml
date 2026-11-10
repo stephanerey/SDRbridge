@@ -7,6 +7,18 @@ name = "sdr-bridge"
 version = "0.6.0"
 description = "Local multi-client I/Q bridge for SDR receivers"
 requires-python = ">=3.12,<3.13"
+license = {file = "LICENSE"}
+authors = [
+  {name = "Stéphane REY F1TJJ"},
+  {name = "Philippe Borghini F5JWF"},
+]
+classifiers = [
+  "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+  "Operating System :: Microsoft :: Windows :: Windows 10",
+  "Operating System :: Microsoft :: Windows :: Windows 11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Communications :: Ham Radio",
+]
 dependencies = [
   "numpy==2.5.4",
   "scipy==1.18.1",

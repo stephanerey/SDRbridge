@@ -14,7 +14,8 @@ from sdr_bridge.bridge import SDRBridge
 from sdr_bridge.app import build_parser, merged_config
 from sdr_bridge.config import DEFAULT_CONFIG, atomic_write_json, default_config_root, load_app_config, read_json, save_app_config
 from sdr_bridge.model import Discontinuity, IQBlock, RadioConfig, SampleFormat, TimeDomain, TimestampOrigin
-from sdr_bridge.recording import ReplaySource, SigMFRecorder, validate_sigmf
+from sdr_bridge.iq_file import inspect_iq_wav
+from sdr_bridge.recording import CaptureFormat, ReplaySource, SigMFRecorder, WAVRecorder, validate_sigmf
 from sdr_bridge.source import SimulatedSource
 
 
@@ -120,6 +121,71 @@ class ConfigTests(unittest.TestCase):
 
 
 class RecordingTests(unittest.TestCase):
+    def test_sdrpp_wav_capture_is_stereo_int16_and_carries_frequency_in_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            recorder = WAVRecorder(
+                Path(directory) / "capture.wav",
+                192_000,
+                SampleFormat.CS16,
+                144_300_000,
+                capture_format=CaptureFormat.SDRPP_WAV,
+            )
+            recorder.start()
+            first = make_block(0, Discontinuity.START)
+            second = make_block(1)
+            recorder.enqueue(first)
+            recorder.enqueue(second)
+            recorder.stop("arrêt demandé")
+
+            self.assertTrue(recorder.finalized)
+            self.assertIn("144300000Hz", recorder.output_path.name)
+            info = inspect_iq_wav(recorder.output_path)
+            self.assertEqual(
+                (info.codec, info.bits_per_sample, info.sample_rate_sps, info.center_frequency_hz),
+                (1, 16, 192_000, 144_300_000),
+            )
+            self.assertEqual(info.sample_count, first.sample_count + second.sample_count)
+            payload = recorder.output_path.read_bytes()[info.data_offset:]
+            self.assertEqual(payload, bytes(first.payload) + bytes(second.payload))
+            self.assertNotIn(b"auxi", recorder.output_path.read_bytes()[:info.data_offset])
+
+    def test_hdsdr_wav_capture_has_auxi_and_converts_float_profile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            count = 16
+            floating = np.linspace(-1.0, 1.0, count * 2, dtype="<f4")
+            block = IQBlock(
+                "source-0", 1, 0, 0, count, 192_000, 144_091_210, 1,
+                SampleFormat.CF32, 0, TimeDomain.HOST_MONOTONIC,
+                TimestampOrigin.HOST_OBSERVATION, Discontinuity.START, 0,
+                memoryview(floating.tobytes()),
+            )
+            recorder = WAVRecorder(
+                Path(directory) / "HDSDR_capture.wav",
+                192_000,
+                SampleFormat.CF32,
+                144_091_210,
+                capture_format=CaptureFormat.HDSDR_WAV,
+            )
+            recorder.start()
+            recorder.enqueue(block)
+            recorder.stop("arrêt demandé")
+
+            self.assertTrue(recorder.finalized)
+            info = inspect_iq_wav(recorder.output_path)
+            self.assertEqual(
+                (info.codec, info.bits_per_sample, info.sample_rate_sps, info.center_frequency_hz),
+                (1, 16, 192_000, 144_091_210),
+            )
+            self.assertEqual(info.sample_count, count)
+            self.assertIn(b"auxi", recorder.output_path.read_bytes()[:info.data_offset])
+            converted = np.frombuffer(
+                recorder.output_path.read_bytes()[info.data_offset:], dtype="<i2",
+            )
+            self.assertTrue(np.array_equal(
+                converted,
+                np.clip(np.rint(floating * 32767.0), -32768, 32767).astype("<i2"),
+            ))
+
     def test_capture_validate_replay_seek_and_eof(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory) / "capture"

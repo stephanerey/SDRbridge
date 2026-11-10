@@ -19,14 +19,17 @@ from .logging_setup import configure_logging
 from .native_control import NativeControlServer
 from .native_sdrplay import NativeSDRplaySource
 from .operations import WatchdogService
-from .recording import ReplaySource, SigMFRecorder
+from .recording import CaptureFormat, Recorder, ReplaySource, create_recorder
 from .soapy_source import SoapySource
 from .source import SimulatedSource
 from .udp import ProfileUDPStreamer
 from . import __version__
 
 
-logger = logging.getLogger(__name__)
+# Keep the component name stable when the module is launched with
+# ``python -m sdr_bridge.app`` (where __name__ would otherwise be __main__
+# and bypass the package-scoped persistent logger).
+logger = logging.getLogger("sdr_bridge.app")
 
 
 class WindowSafeArgumentParser(argparse.ArgumentParser):
@@ -298,7 +301,7 @@ class AppRuntime:
         # them.
         self.operator_udp: ProfileUDPStreamer | None = None
         self.watchdog = WatchdogService(self.bridge)
-        self.recorder: SigMFRecorder | None = None
+        self.recorder: Recorder | None = None
         self._recorder_token: str | None = None
         self._closed = False
         self.log_path: Path | None = None
@@ -483,14 +486,26 @@ class AppRuntime:
     def udp_destinations_snapshot(self) -> list[dict]:
         return [streamer.snapshot() for streamer in self.operator_udps.values()]
 
-    def start_recording(self, base_path: str, profile_id: str, revision: int = 1) -> None:
+    def start_recording(
+        self,
+        output_path: str,
+        profile_id: str,
+        revision: int = 1,
+        capture_format: CaptureFormat | str = CaptureFormat.SIGMF,
+    ) -> Path:
         if self.recorder is not None:
             raise RuntimeError("a capture is already active")
         if not self.bridge.running:
             raise RuntimeError("start RX before recording")
         profile = self.bridge.profiles.get(profile_id, revision)
         profile.validate(self.bridge.config.sample_rate_sps)
-        recorder = SigMFRecorder(base_path, profile.output_rate_sps, profile.sample_format, self.bridge.config.center_frequency_hz)
+        recorder = create_recorder(
+            output_path,
+            profile.output_rate_sps,
+            profile.sample_format,
+            self.bridge.config.center_frequency_hz,
+            capture_format,
+        )
         recorder.start()
         try:
             token, _ = self.bridge.subscribe_profile(profile_id, revision, recorder.enqueue)
@@ -499,6 +514,7 @@ class AppRuntime:
             raise
         self.recorder = recorder
         self._recorder_token = token
+        return recorder.output_path
 
     def stop_recording(self, reason: str = "arrêt demandé") -> None:
         recorder = self.recorder
@@ -530,6 +546,13 @@ class AppRuntime:
                     "dispatch_processing_average_ms": snapshot["dispatch_processing_average_ms"],
                     "dispatch_processing_max_ms": snapshot["dispatch_processing_max_ms"],
                     "dispatch_slow_blocks": snapshot["dispatch_slow_blocks"],
+                    "dsp_queue_drops": snapshot["dsp_queue_drops"],
+                    "profile_queue_drops": snapshot.get("profile_queue_drops", 0),
+                    "dsp_queue_high_water": snapshot["dsp_queue_high_water"],
+                    "dsp_errors": snapshot["dsp_errors"],
+                    "dsp_processing_average_ms": snapshot["dsp_processing_average_ms"],
+                    "dsp_processing_max_ms": snapshot["dsp_processing_max_ms"],
+                    "dsp_slow_blocks": snapshot["dsp_slow_blocks"],
                 },
             },
         )

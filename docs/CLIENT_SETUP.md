@@ -31,17 +31,40 @@ Pour un essai isolé en simulation :
   --udp 127.0.0.1:50004 --udp-transport qmap_linrad
 ```
 
-Le champ **Bandwidth** est indépendant du Sampling : il sélectionne le filtre RF SDRplay. SDRbridge ne propose que les largeurs compatibles avec le Sampling courant (par exemple, à `2 MS/s`, les filtres 5–8 MHz sont masqués). Changer Bandwidth filtre le spectre sans changer le débit IQ ; changer Sampling reconfigure le flux maître.
+Le champ **Bandwidth** est indépendant du Sampling : il sélectionne le filtre RF SDRplay. Le mode **Auto** choisit la valeur matérielle disponible la plus proche du débit IQ demandé, tandis que toutes les valeurs exposées par le récepteur restent disponibles en sélection manuelle. Changer Bandwidth filtre le spectre sans changer le débit IQ ; changer Sampling reconfigure le flux maître.
 
 Plusieurs clients UDP peuvent être servis simultanément. Depuis l’onglet **Outputs & Clients**, ajouter par exemple `127.0.0.1:7356` avec le transport **SDR++ raw CS16** ; conserver la première destination sur `7355`, puis configurer chaque instance SDR++ sur son port respectif. En ligne de commande, répéter `--udp` :
 
 ```powershell
-.\release-v0.5\SDR_Bridge\SDR_Bridge.exe --config .\config.soapy-sdrpp.json `
+.\release-v0.6\SDR_Bridge\SDR_Bridge.exe --config .\config.soapy-sdrpp.json `
   --udp 127.0.0.1:7355 --udp 127.0.0.1:7356 `
   --udp-transport sdrpp_raw_cs16
 ```
 
 Un client SDR++ raw ne réalise pas de handshake ; il figure donc comme destination UDP avec ses statistiques, pas comme session native confirmée.
+
+## HDSDR : client local, pas destination UDP
+
+Ne pas réserver `7356` ou un autre port UDP pour HDSDR. La DLL
+`ExtIO_SDR_Bridge.dll` contacte `127.0.0.1:47631/TCP` pour s’enregistrer, puis
+lit directement le ring maître SDBR v2 en mémoire partagée. Le port source TCP
+éphémère est attribué par Windows et ne se configure pas.
+
+L’ExtIO 0.6 ne demande pas de profil décimé : chaque HDSDR reçoit le débit
+source complet. Les lecteurs ExtIO sont ajoutés au nombre de consommateurs et
+au débit IQ logique (`débit source × 32 bits × nombre de lecteurs`), mais pas
+aux métriques UDP. Plusieurs instances partagent une seule écriture du ring ;
+les copies et le DSP propres à chaque HDSDR restent à la charge de leurs
+processus respectifs.
+
+La compatibilité publiée couvre HDSDR 2.81a et SDRuno 1.42.1710. Pour ce
+dernier, copier la même DLL dans
+`C:\Program Files (x86)\SDRplay\SDRuno`, puis lancer exclusivement
+`SDRuno.EXTIO.exe`. La recette vérifie `In SR: 2000000`, PLAY/STOP, le spectre
+SP1 et une session locale séparée vers `47631`. La présence d’un support ExtIO
+dans un autre logiciel ne suffit pas à le certifier : il faut également
+vérifier l’ABI Win32, le format 16 bits, la fréquence, le taux et les cycles
+Start/Stop.
 
 Important : la destination `--udp ... --udp-transport sdrpp_raw_cs16` lit actuellement le ring maître SDRbridge et transmet le taux source effectif, sans la décimation des profils internes `192 kS/s`. Régler SDR++ sur `192000 S/s` comprime l’axe fréquentiel d’un facteur `2000000/192000 = 10,4167` et transforme une émission FM de 150–200 kHz en une trace d’environ 14–19 kHz. Si le taux effectif du périphérique est changé dans SDRbridge, reporter exactement cette nouvelle valeur dans SDR++.
 

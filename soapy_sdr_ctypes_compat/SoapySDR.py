@@ -1,7 +1,8 @@
 """Small ctypes-backed subset of the SoapySDR Python API.
 
-This module is intentionally narrow: it covers the API surface used by Antrack's
-SDR client and loads the SoapySDR DLLs from a local PothosSDR installation.
+This module is intentionally narrow: it covers the API surface used by
+SDRbridge.  A packaged, application-private SoapySDR runtime is preferred so
+ANTRACK and other radio applications can keep their own independent runtime.
 """
 
 from __future__ import annotations
@@ -10,12 +11,14 @@ import ctypes
 import os
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 from typing import Any
 
 
 SOAPY_SDR_TX = 0
 SOAPY_SDR_RX = 1
 SOAPY_SDR_CF32 = "CF32"
+SOAPY_SDR_CS16 = "CS16"
 SOAPY_SDR_TIMEOUT = -1
 SOAPY_SDR_STREAM_ERROR = -2
 SOAPY_SDR_CORRUPTION = -3
@@ -86,23 +89,31 @@ def _markup(args: dict[str, Any] | None) -> bytes:
     return ",".join(f"{key}={value}" for key, value in args.items()).encode("utf-8")
 
 
-def _pothos_root() -> Path:
-    env_root = os.environ.get("POTHOSSDR_ROOT")
+def _soapy_root() -> Path:
+    private_root = os.environ.get("SDRBRIDGE_SOAPY_ROOT")
+    packaged_root = (
+        Path(sys._MEIPASS) / "soapy_runtime"
+        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
+        else None
+    )
+    pothos_root = os.environ.get("POTHOSSDR_ROOT")
     candidates = [
-        Path(env_root) if env_root else None,
+        Path(private_root) if private_root else None,
+        packaged_root,
+        Path(pothos_root) if pothos_root else None,
         Path(r"C:\Program Files\PothosSDR"),
         Path(r"C:\PothosSDR"),
     ]
     for candidate in candidates:
         if candidate and (candidate / "bin" / "SoapySDR.dll").exists():
             return candidate
-    raise ImportError("SoapySDR.dll not found. Install PothosSDR first.")
+    raise ImportError("SoapySDR.dll not found in the SDRbridge runtime or PothosSDR")
 
 
-_ROOT = _pothos_root()
+_ROOT = _soapy_root()
 _BIN = _ROOT / "bin"
-_MODULES = _ROOT / "lib" / "SoapySDR" / "modules0.8"
 _SDRPLAY_API = Path(r"C:\Program Files\SDRplay\API\x64")
+os.environ["SOAPY_SDR_ROOT"] = str(_ROOT)
 path_parts = [str(_BIN)]
 if (_SDRPLAY_API / "sdrplay_api.dll").exists():
     path_parts.insert(0, str(_SDRPLAY_API))
@@ -118,6 +129,22 @@ if (_SDRPLAY_API / "sdrplay_api.dll").exists():
     ctypes.CDLL(str(_SDRPLAY_API / "sdrplay_api.dll"))
 
 _lib = ctypes.CDLL(str(_BIN / "SoapySDR.dll"))
+
+
+for _version_symbol in ("SoapySDR_getLibVersion", "SoapySDR_getAPIVersion", "SoapySDR_getABIVersion"):
+    getattr(_lib, _version_symbol).restype = ctypes.c_char_p
+
+
+def getLibVersion() -> str:
+    return _decode(_lib.SoapySDR_getLibVersion())
+
+
+def getAPIVersion() -> str:
+    return _decode(_lib.SoapySDR_getAPIVersion())
+
+
+def getABIVersion() -> str:
+    return _decode(_lib.SoapySDR_getABIVersion())
 
 
 _lib.SoapySDRDevice_lastError.restype = ctypes.c_char_p
@@ -140,14 +167,22 @@ _lib.SoapySDRDevice_listGains.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.
 _lib.SoapySDRDevice_listGains.restype = ctypes.POINTER(ctypes.c_char_p)
 _lib.SoapySDRDevice_listSampleRates.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
 _lib.SoapySDRDevice_listSampleRates.restype = ctypes.POINTER(ctypes.c_double)
+_lib.SoapySDRDevice_getSampleRateRange.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
+_lib.SoapySDRDevice_getSampleRateRange.restype = ctypes.POINTER(_Range)
 _lib.SoapySDRDevice_getSettingInfo.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t)]
 _lib.SoapySDRDevice_getSettingInfo.restype = ctypes.POINTER(_ArgInfo)
 _lib.SoapySDRArgInfoList_clear.argtypes = [ctypes.POINTER(_ArgInfo), ctypes.c_size_t]
 
 _lib.SoapySDRDevice_setAntenna.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.c_char_p]
 _lib.SoapySDRDevice_setGainMode.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.c_bool]
+_lib.SoapySDRDevice_hasGainMode.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t]
+_lib.SoapySDRDevice_hasGainMode.restype = ctypes.c_bool
+_lib.SoapySDRDevice_getGainMode.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t]
+_lib.SoapySDRDevice_getGainMode.restype = ctypes.c_bool
 _lib.SoapySDRDevice_setGain.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.c_double]
 _lib.SoapySDRDevice_setGainElement.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_double]
+_lib.SoapySDRDevice_getGainElement.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.c_char_p]
+_lib.SoapySDRDevice_getGainElement.restype = ctypes.c_double
 _lib.SoapySDRDevice_setFrequencyCorrection.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.c_double]
 _lib.SoapySDRDevice_setSampleRate.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.c_double]
 _lib.SoapySDRDevice_setBandwidth.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.c_double]
@@ -159,12 +194,16 @@ _lib.SoapySDRDevice_getSampleRate.argtypes = [ctypes.c_void_p, ctypes.c_int, cty
 _lib.SoapySDRDevice_getSampleRate.restype = ctypes.c_double
 _lib.SoapySDRDevice_getBandwidth.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t]
 _lib.SoapySDRDevice_getBandwidth.restype = ctypes.c_double
+_lib.SoapySDRDevice_getAntenna.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t]
+_lib.SoapySDRDevice_getAntenna.restype = ctypes.c_char_p
 _lib.SoapySDRDevice_getGainElementRange.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.c_char_p]
 _lib.SoapySDRDevice_getGainElementRange.restype = _Range
 _lib.SoapySDRDevice_getFrequencyRange.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
 _lib.SoapySDRDevice_getFrequencyRange.restype = ctypes.POINTER(_Range)
 _lib.SoapySDRDevice_listBandwidths.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
 _lib.SoapySDRDevice_listBandwidths.restype = ctypes.POINTER(ctypes.c_double)
+_lib.SoapySDRDevice_getBandwidthRange.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
+_lib.SoapySDRDevice_getBandwidthRange.restype = ctypes.POINTER(_Range)
 
 _lib.SoapySDRDevice_setupStream.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p]
 _lib.SoapySDRDevice_setupStream.restype = ctypes.c_void_p
@@ -238,6 +277,9 @@ class Device:
             raise RuntimeError(_last_error())
 
     def __del__(self) -> None:
+        self.close()
+
+    def close(self) -> None:
         device = getattr(self, "_device", None)
         if device:
             try:
@@ -256,6 +298,14 @@ class Device:
         length = ctypes.c_size_t()
         result = _lib.SoapySDRDevice_listSampleRates(self._device, direction, channel, ctypes.byref(length))
         values = [float(result[index]) for index in range(length.value)] if result else []
+        if result:
+            _lib.SoapySDR_free(result)
+        return values
+
+    def getSampleRateRange(self, direction: int, channel: int) -> list[tuple[float, float, float]]:
+        length = ctypes.c_size_t()
+        result = _lib.SoapySDRDevice_getSampleRateRange(self._device, direction, channel, ctypes.byref(length))
+        values = [(float(result[i].minimum), float(result[i].maximum), float(result[i].step)) for i in range(length.value)] if result else []
         if result:
             _lib.SoapySDR_free(result)
         return values
@@ -296,6 +346,15 @@ class Device:
     def setGainMode(self, direction: int, channel: int, automatic: bool) -> int:
         return _check(_lib.SoapySDRDevice_setGainMode(self._device, direction, channel, bool(automatic)))
 
+    def hasGainMode(self, direction: int, channel: int) -> bool:
+        return bool(_lib.SoapySDRDevice_hasGainMode(self._device, direction, channel))
+
+    def getGainMode(self, direction: int, channel: int) -> bool:
+        return bool(_lib.SoapySDRDevice_getGainMode(self._device, direction, channel))
+
+    def getGain(self, direction: int, channel: int, name: str) -> float:
+        return float(_lib.SoapySDRDevice_getGainElement(self._device, direction, channel, str(name).encode()))
+
     def setFrequencyCorrection(self, direction: int, channel: int, value: float) -> int:
         return _check(_lib.SoapySDRDevice_setFrequencyCorrection(self._device, direction, channel, float(value)))
 
@@ -320,6 +379,9 @@ class Device:
     def getBandwidth(self, direction: int, channel: int) -> float:
         return float(_lib.SoapySDRDevice_getBandwidth(self._device, direction, channel))
 
+    def getAntenna(self, direction: int, channel: int) -> str:
+        return _decode(_lib.SoapySDRDevice_getAntenna(self._device, direction, channel))
+
     def getGainRange(self, direction: int, channel: int, name: str) -> tuple[float, float, float]:
         value = _lib.SoapySDRDevice_getGainElementRange(self._device, direction, channel, str(name).encode())
         return float(value.minimum), float(value.maximum), float(value.step)
@@ -336,6 +398,14 @@ class Device:
         length = ctypes.c_size_t()
         result = _lib.SoapySDRDevice_listBandwidths(self._device, direction, channel, ctypes.byref(length))
         values = [float(result[i]) for i in range(length.value)] if result else []
+        if result:
+            _lib.SoapySDR_free(result)
+        return values
+
+    def getBandwidthRange(self, direction: int, channel: int) -> list[tuple[float, float, float]]:
+        length = ctypes.c_size_t()
+        result = _lib.SoapySDRDevice_getBandwidthRange(self._device, direction, channel, ctypes.byref(length))
+        values = [(float(result[i].minimum), float(result[i].maximum), float(result[i].step)) for i in range(length.value)] if result else []
         if result:
             _lib.SoapySDR_free(result)
         return values
