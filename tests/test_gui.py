@@ -36,6 +36,12 @@ class QtInterfaceTests(unittest.TestCase):
         self.assertEqual(application.applicationName(), "SDRbridge")
         self.assertFalse(application.windowIcon().isNull())
 
+    def test_lan_destination_switches_loopback_datagram_default_to_1200(self):
+        self.window.destination_edit.setText("192.0.2.10:7356")
+        self.window.destination_datagram.setValue(8192)
+        self.window._destination_endpoint_changed()
+        self.assertEqual(self.window.destination_datagram.value(), 1200)
+
     def tearDown(self):
         if not self.bridge._closed:
             self.bridge.stop()

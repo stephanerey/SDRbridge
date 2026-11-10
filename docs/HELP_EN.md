@@ -85,14 +85,28 @@ Other Win32 ExtIO hosts are not guaranteed without an explicit test.
 SDRbridge includes its own SoapySDR runtime. Do not copy its DLLs into
 PothosSDR, ANTRACK or SDR++.
 
-The 0.6.0 package includes only the `SoapySDRPlay3` hardware module. SDRplay
+The 0.6.1 package includes only the `SoapySDRPlay3` hardware module. SDRplay
 receivers are therefore the only hardware supported out of the box by this
 installer. RTL-SDR, USRP/UHD, Airspy, HackRF or LimeSDR requires a compatible
 Soapy module to be added and qualified inside SDRbridge's private runtime;
 modules from the system-wide PothosSDR installation are not loaded.
+
+## LAN UDP destinations
+
+Remote UDP destinations are disabled by default. In **Settings**, enable
+**Allow LAN UDP destinations** before adding a non-loopback address. This
+permission is saved immediately and does not expose RF control on the network.
+For LAN traffic, use 1200-byte datagrams; the editor automatically replaces the
+8192-byte loopback default when a remote endpoint is entered. The receiver must
+bind its LAN address or `0.0.0.0`, and its firewall must allow the selected UDP
+port.
 
 ## Support, license and donations
 
 SDRbridge is licensed under GNU GPL version 3 or later and comes without any
 warranty. Authors: Stéphane REY F1TJJ and Philippe Borghini F5JWF. Source code
 and issue tracking: https://github.com/stephanerey/SDRbridge.
+
+The software was developed with AI assistance under human direction, review,
+hardware testing, and release validation, using Auroramind's SR Method 4.1:
+https://github.com/syl2042/Aurora_SR_method_codex_pack.

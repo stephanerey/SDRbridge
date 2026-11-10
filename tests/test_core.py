@@ -1,12 +1,14 @@
 import json
 import socket
+import tempfile
 import time
 import unittest
 from copy import deepcopy
+from pathlib import Path
 
 from sdr_bridge.bridge import SDRBridge
 from sdr_bridge.app import AppRuntime
-from sdr_bridge.config import DEFAULT_CONFIG
+from sdr_bridge.config import DEFAULT_CONFIG, load_app_config, save_app_config
 from sdr_bridge.control import ControlServer
 from sdr_bridge.model import RadioConfig
 from sdr_bridge.ring import RingReader, SharedIQRing
@@ -47,6 +49,28 @@ class RingTests(unittest.TestCase):
 
 
 class BridgeTests(unittest.TestCase):
+    def test_lan_udp_permission_is_separate_persistent_and_immediate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "app.json"
+            config = deepcopy(DEFAULT_CONFIG)
+            config["source"] = "simulated"
+            config["network"]["legacy_control_port"] = 0
+            config["network"]["control_port"] = 0
+            save_app_config(path, config)
+            runtime = AppRuntime(config, config_path=path)
+            try:
+                with self.assertRaisesRegex(ValueError, "Allow LAN UDP destinations"):
+                    runtime._build_udp_streamer("192.0.2.10:7356", "sdbu_v2", 192_000, 1200, 32)
+                self.assertTrue(runtime.set_lan_udp_enabled(True))
+                self.assertFalse(runtime.config["network"]["enabled"])
+                self.assertTrue(load_app_config(path)[1]["network"]["allow_lan_udp"])
+                _, streamer = runtime._build_udp_streamer(
+                    "192.0.2.10:7356", "sdbu_v2", 192_000, 1200, 32,
+                )
+                streamer.stop()
+            finally:
+                runtime.close()
+
     def test_gui_runtime_can_start_disconnected_for_device_discovery(self):
         config = deepcopy(DEFAULT_CONFIG)
         config["source"] = "simulated"

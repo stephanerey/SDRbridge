@@ -65,7 +65,7 @@ TEXT = {
         "transport": "Transport", "output_rate": "Output rate", "packets": "Packets", "bytes": "Bytes",
         "queue_drops": "Queue drops", "errors": "Errors", "center_hz": "Center Hz",
         "udp_editor": "UDP STREAM EDITOR", "udp_note": "Each UDP destination has its own effective rate. Equal rates share one DSP pipeline. QMAP/Linrad is fixed at 96 kS/s (usual port 50004).",
-        "native_loopback_enabled": "Native loopback control enabled", "native_network_disabled": "Native network disabled by configuration",
+        "lan_udp_enabled": "LAN UDP destinations enabled", "lan_udp_disabled": "LAN UDP destinations disabled — enable in Settings",
         "edit": "Edit", "rule": "Rule", "min_mhz": "Min MHz", "max_mhz": "Max MHz",
         "priority": "Priority", "state": "State", "hysteresis": "Hysteresis", "agc": "AGC", "if_rf": "IF / RF",
         "rf_note": "Ranges use [minimum, maximum[. Overlapping enabled rules need different priorities; hysteresis prevents profile chatter at a boundary.",
@@ -145,7 +145,7 @@ TEXT = {
         "transport": "Transport", "output_rate": "Débit de sortie", "packets": "Paquets", "bytes": "Octets",
         "queue_drops": "Pertes de file", "errors": "Erreurs", "center_hz": "Fréquence centrale (Hz)",
         "udp_editor": "ÉDITEUR DE FLUX UDP", "udp_note": "Chaque destination UDP possède son propre débit effectif. Les débits identiques partagent une chaîne DSP. QMAP/Linrad est fixé à 96 kS/s (port habituel 50004).",
-        "native_loopback_enabled": "Contrôle natif en boucle locale actif", "native_network_disabled": "Réseau natif désactivé par la configuration",
+        "lan_udp_enabled": "Destinations UDP LAN autorisées", "lan_udp_disabled": "Destinations UDP LAN désactivées — activer dans Paramètres",
         "edit": "Modifier", "rule": "Règle", "min_mhz": "Min MHz", "max_mhz": "Max MHz",
         "priority": "Priorité", "state": "État", "hysteresis": "Hystérésis", "agc": "AGC", "if_rf": "IF / RF",
         "rf_note": "Les plages utilisent [minimum, maximum[. Les règles actives qui se chevauchent doivent avoir des priorités différentes ; l’hystérésis évite les basculements à une limite.",
@@ -209,7 +209,7 @@ class AbsoluteFrequencyAxis(pg.AxisItem):
 
 
 class SettingsDialog(QtWidgets.QDialog):
-    def __init__(self, language: str, always_on_top: bool, parent=None):
+    def __init__(self, language: str, always_on_top: bool, parent=None, *, lan_udp_enabled: bool = False):
         super().__init__(parent)
         french = language == "fr"
         self.setWindowTitle("Paramètres SDRbridge" if french else "SDRbridge settings")
@@ -221,8 +221,19 @@ class SettingsDialog(QtWidgets.QDialog):
         self.language_combo.setCurrentIndex(max(0, self.language_combo.findData(language)))
         self.always_check = QtWidgets.QCheckBox()
         self.always_check.setChecked(always_on_top)
+        self.lan_udp_check = QtWidgets.QCheckBox()
+        self.lan_udp_check.setChecked(lan_udp_enabled)
+        self.lan_udp_note = QtWidgets.QLabel(
+            "Autorise uniquement les destinations IQ UDP saisies localement ; le contrôle RF reste local."
+            if french else
+            "Allows only locally entered IQ UDP destinations; RF control remains local."
+        )
+        self.lan_udp_note.setWordWrap(True)
+        self.lan_udp_note.setProperty("role", "muted")
         form.addRow("Langue" if french else "Language", self.language_combo)
         form.addRow("Toujours au-dessus" if french else "Always on top", self.always_check)
+        form.addRow("Autoriser UDP LAN" if french else "Allow LAN UDP destinations", self.lan_udp_check)
+        form.addRow("", self.lan_udp_note)
         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
         buttons.button(QtWidgets.QDialogButtonBox.Cancel).setText("Annuler" if french else "Cancel")
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject)
@@ -564,10 +575,21 @@ class BridgeWindow(QtWidgets.QMainWindow):
         self._settings.sync()
 
     def _open_settings(self) -> None:
-        dialog = SettingsDialog(self.language, bool(self.windowFlags() & QtCore.Qt.WindowStaysOnTopHint), self)
+        dialog = SettingsDialog(
+            self.language,
+            bool(self.windowFlags() & QtCore.Qt.WindowStaysOnTopHint),
+            self,
+            lan_udp_enabled=bool(getattr(self.runtime, "lan_udp_enabled", False)),
+        )
         dialog.setStyleSheet(DARK_STYLESHEET)
         if dialog.exec_() != QtWidgets.QDialog.Accepted:
             return
+        if self.runtime is not None and hasattr(self.runtime, "set_lan_udp_enabled"):
+            try:
+                self._lan_udp_enabled = bool(self.runtime.set_lan_udp_enabled(dialog.lan_udp_check.isChecked()))
+            except Exception as exc:
+                self._show_error(self._t("configuration_rejected").format(error=exc))
+                return
         self.language = str(dialog.language_combo.currentData())
         self._always_on_top(dialog.always_check.isChecked())
         if self._settings is not None:
@@ -703,7 +725,7 @@ class BridgeWindow(QtWidgets.QMainWindow):
             label.setText(self._t(key))
         self.add_destination_button.setText(self._t("add_udp")); self.update_destination_button.setText(self._t("update_stream")); self.remove_destination_button.setText(self._t("remove"))
         self.udp_note_label.setText(self._t("udp_note")); self.native_network_label.setText(
-            self._t("native_loopback_enabled") if self._native_network_enabled else self._t("native_network_disabled")
+            self._t("lan_udp_enabled") if self._lan_udp_enabled else self._t("lan_udp_disabled")
         )
 
         self.rf_automatic_title.setText(self._t("automatic_mode")); self.rf_rules_title.setText(self._t("rf_rules"))
@@ -1436,6 +1458,7 @@ class BridgeWindow(QtWidgets.QMainWindow):
         self.destination_editor = QtWidgets.QGroupBox(self._t("udp_editor")); destination_controls = QtWidgets.QGridLayout(self.destination_editor)
         self.destination_edit = QtWidgets.QLineEdit("127.0.0.1:7356")
         self.destination_edit.setPlaceholderText("HOST:PORT")
+        self.destination_edit.editingFinished.connect(self._destination_endpoint_changed)
         self.destination_transport = QtWidgets.QComboBox()
         self.destination_transport.addItem(self._t("sdrpp_raw"), "sdrpp_raw_cs16")
         self.destination_transport.addItem("SDBU v2", "sdbu_v2")
@@ -1484,9 +1507,9 @@ class BridgeWindow(QtWidgets.QMainWindow):
         self.udp_note_label.setProperty("role", "muted"); self.udp_note_label.setWordWrap(True); layout.addWidget(self.udp_note_label)
         if self.runtime is None or not hasattr(self.runtime, "add_udp_destination"):
             self.add_destination_button.setEnabled(False); self.update_destination_button.setEnabled(False); self.remove_destination_button.setEnabled(False)
-        self._native_network_enabled = bool(getattr(self.runtime, "native_control", None))
+        self._lan_udp_enabled = bool(getattr(self.runtime, "lan_udp_enabled", False))
         self.native_network_label = QtWidgets.QLabel(
-            self._t("native_loopback_enabled") if self._native_network_enabled else self._t("native_network_disabled")
+            self._t("lan_udp_enabled") if self._lan_udp_enabled else self._t("lan_udp_disabled")
         )
         layout.addWidget(self.native_network_label)
         return tab
@@ -1510,6 +1533,7 @@ class BridgeWindow(QtWidgets.QMainWindow):
             self._show_error(self._t("udp_management_unavailable"))
             return
         try:
+            self._destination_endpoint_changed()
             self.runtime.add_udp_destination(
                 self.destination_edit.text().strip(), self.destination_transport.currentData(),
                 self.destination_rate.value(), self.destination_datagram.value(),
@@ -1519,6 +1543,17 @@ class BridgeWindow(QtWidgets.QMainWindow):
             self.refresh()
         except Exception as exc:
             self._show_error(self._t("client_rejected").format(error=exc))
+
+    def _destination_endpoint_changed(self) -> None:
+        if self.destination_transport.currentData() == "qmap_linrad":
+            return
+        endpoint = self.destination_edit.text().strip()
+        try:
+            host, _ = endpoint.rsplit(":", 1)
+        except ValueError:
+            return
+        if host.lower() not in {"127.0.0.1", "localhost", "::1"} and self.destination_datagram.value() == 8192:
+            self.destination_datagram.setValue(1200)
 
     def _destination_transport_changed(self) -> None:
         qmap = self.destination_transport.currentData() == "qmap_linrad"

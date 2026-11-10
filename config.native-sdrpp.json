@@ -19,6 +19,7 @@
   },
   "network": {
     "enabled": false,
+    "allow_lan_udp": false,
     "host": "127.0.0.1",
     "control_port": 47632,
     "legacy_control_port": 47631,

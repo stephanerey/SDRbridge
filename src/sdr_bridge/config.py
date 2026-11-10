@@ -33,6 +33,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "network": {
         "enabled": False,
+        "allow_lan_udp": False,
         "host": "127.0.0.1",
         "control_port": 47_632,
         "legacy_control_port": 47_631,

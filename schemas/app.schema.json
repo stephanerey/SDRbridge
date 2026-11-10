@@ -37,6 +37,7 @@
       "required": ["enabled", "host", "control_port", "legacy_control_port", "token_file", "mdns"],
       "properties": {
         "enabled": {"type": "boolean"},
+        "allow_lan_udp": {"type": "boolean"},
         "host": {"type": "string"},
         "control_port": {"type": "integer", "minimum": 0, "maximum": 65535},
         "legacy_control_port": {"type": "integer", "minimum": 0, "maximum": 65535},

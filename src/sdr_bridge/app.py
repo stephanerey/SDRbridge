@@ -11,7 +11,7 @@ import threading
 import time
 
 from .bridge import SDRBridge
-from .config import DEFAULT_CONFIG, load_app_config, normalize_instance_name
+from .config import DEFAULT_CONFIG, load_app_config, normalize_instance_name, save_app_config
 from .control import ControlServer
 from .iq_file import IQFileSource
 from .model import RadioConfig, SampleFormat
@@ -164,6 +164,8 @@ def merged_config(args: argparse.Namespace) -> tuple[Path, dict]:
         config["network"]["control_port"] = args.native_control_port
     if args.enable_network is not None:
         config["network"]["enabled"] = args.enable_network
+        if args.enable_network:
+            config["network"]["allow_lan_udp"] = True
     if args.auto_start is not None:
         config["auto_start"] = args.auto_start
     if args.frequency is not None:
@@ -225,8 +227,10 @@ class AppRuntime:
         operator_udp_queue_blocks: int = 32,
         run_id: str | None = None,
         instance_name: str = "default",
+        config_path: Path | None = None,
     ):
         self.config = config
+        self.config_path = Path(config_path) if config_path is not None else None
         self.instance_name = normalize_instance_name(instance_name)
         buffers = config["buffers"]
         block_samples = int(buffers["block_samples"])
@@ -270,6 +274,7 @@ class AppRuntime:
         if self._hardware_source is not None:
             self._hardware_config = bridge_config
         network = config["network"]
+        self.lan_udp_enabled = bool(network.get("allow_lan_udp", network["enabled"]))
         self.legacy_control = ControlServer(self.bridge, port=int(network["legacy_control_port"]))
         self.native_control: NativeControlServer | None = None
         if network["enabled"]:
@@ -409,8 +414,8 @@ class AppRuntime:
     ) -> tuple[str, ProfileUDPStreamer]:
         """Start one independent operator UDP destination and return metrics."""
         host, port = self._parse_udp_destination(spec)
-        if host not in {"127.0.0.1", "localhost", "::1"} and not self.config["network"]["enabled"]:
-            raise ValueError("LAN UDP requires network.enabled and explicit interface policy")
+        if host not in {"127.0.0.1", "localhost", "::1"} and not self.lan_udp_enabled:
+            raise ValueError("LAN UDP is disabled; enable 'Allow LAN UDP destinations' in Settings")
         selected_transport = transport or self.operator_udp_transport
         if selected_transport == "qmap_linrad":
             if sample_rate_sps not in {None, 96_000}:
@@ -430,6 +435,17 @@ class AppRuntime:
             queue_blocks=queue_blocks,
         )
         return key, streamer
+
+    def set_lan_udp_enabled(self, enabled: bool) -> bool:
+        """Apply and persist the local operator's outbound LAN permission."""
+        enabled = bool(enabled)
+        if self.config_path is not None:
+            _, persisted = load_app_config(self.config_path, instance_name=self.instance_name)
+            persisted.setdefault("network", {})["allow_lan_udp"] = enabled
+            save_app_config(self.config_path, persisted)
+        self.config.setdefault("network", {})["allow_lan_udp"] = enabled
+        self.lan_udp_enabled = enabled
+        return enabled
 
     def add_udp_destination(
         self,
@@ -610,7 +626,7 @@ def main(argv: list[str] | None = None) -> int:
     exit_code = 0
     try:
         try:
-            _, config = merged_config(args)
+            config_path, config = merged_config(args)
         except (ValueError, OSError) as exc:
             logger.error("configuration is invalid", exc_info=True, extra={"code": "CONFIG_INVALID"})
             _console_message(f"Configuration invalide: {exc}")
@@ -670,6 +686,7 @@ def main(argv: list[str] | None = None) -> int:
                 operator_udp_queue_blocks=(args.udp_queue_blocks if args.udp_queue_blocks is not None else 32),
                 run_id=log_session.run_id,
                 instance_name=instance_name,
+                config_path=config_path,
             )
             runtime.log_path = log_session.log_path
             runtime.start(start_rx=bool(args.headless or config["auto_start"]))

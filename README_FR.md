@@ -73,6 +73,17 @@ Le logiciel est fourni sans garantie. Les binaires d'une version publiée sont
 accompagnés du code source correspondant dans la release GitHub portant le même
 numéro de version.
 
+## Méthode de développement et transparence sur l'IA
+
+SDRbridge a été développé avec l'assistance d'outils d'intelligence
+artificielle, sous direction humaine, avec revue du code, essais matériels et
+validation des versions. Le projet a utilisé la
+[SR Method 4.1 d'Auroramind](https://github.com/syl2042/Aurora_SR_method_codex_pack)
+pour structurer les exigences, les passes d'implémentation, les preuves et les
+vérifications proportionnées aux risques. L'assistance IA ne remplace pas les
+tests automatisés et les qualifications sur récepteurs réels documentés dans ce
+dépôt.
+
 **`SDR_Bridge.exe` ne doit pas être copié seul.** Le build actuel est une application portable « en dossier » : l’exécutable dépend des DLL et du répertoire `_internal` placés à côté de lui. Deux distributions sont donc possibles :
 
 - recommandée : le fichier unique `SDRbridge_Setup_0.6.1.exe` après publication de la release ;
@@ -158,6 +169,15 @@ La barre d'état indique alors **Fichier IQ …**. Le fichier est lu à sa caden
 ### Régler les sorties UDP indépendamment
 
 Dans **Outputs & Clients**, saisir pour chaque client : l'adresse `HOST:PORT`, le transport, le débit de sortie, la taille maximale d'un datagramme et la profondeur de file. **Add client** crée le flux ; sélectionner une ligne puis **Update selected** applique de nouveaux paramètres. Le débit ne peut pas dépasser celui de la source.
+
+Les destinations hors de la boucle locale sont désactivées par défaut. Ouvrir
+**Paramètres**, activer **Autoriser UDP LAN**, puis ajouter l'adresse distante.
+Cette autorisation s'applique immédiatement et est enregistrée dans la
+configuration active sans exposer le contrôle RF sur le LAN. Si la taille
+loopback de 8192 octets est encore sélectionnée, la saisie d'une destination
+LAN la ramène automatiquement au budget réseau plus sûr de 1200 octets.
+L'application réceptrice doit écouter sur son adresse LAN ou `0.0.0.0`, et son
+pare-feu doit autoriser le port UDP entrant choisi.
 
 Exemple avec une source à 2 MS/s :
 

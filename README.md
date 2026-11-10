@@ -64,6 +64,15 @@ SDRbridge is free software distributed under the **GNU GPL v3 or any later versi
 
 The software is provided without warranty. Published binaries are accompanied by the corresponding source code in the GitHub release carrying the same version number.
 
+## Development method and AI disclosure
+
+SDRbridge was developed with the assistance of AI coding tools, under human
+direction, code review, hardware testing, and release validation. The project
+used Auroramind's [SR Method 4.1](https://github.com/syl2042/Aurora_SR_method_codex_pack)
+to structure requirements, implementation passes, evidence, and risk-based
+verification. AI assistance does not replace the automated tests and real-radio
+qualification documented in this repository.
+
 **Do not copy `SDR_Bridge.exe` by itself.** The current build is a portable directory application: the executable depends on the adjacent DLLs and `_internal` directory. Two distribution methods are supported:
 
 - recommended: the single `SDRbridge_Setup_0.6.1.exe` installer attached to the release;
@@ -149,6 +158,14 @@ The status bar then identifies the **IQ file** source. The file is played at its
 ### Configuring independent UDP outputs
 
 In **Clients & Streams**, enter the destination `HOST:PORT`, transport, output rate, maximum datagram size, and queue depth for each client. **Add client** creates a stream; select a row and press **Update selected** to apply new parameters. The output rate cannot exceed the source rate.
+
+Non-loopback destinations are disabled by default. Open **Settings**, enable
+**Allow LAN UDP destinations**, then add the remote address. This permission
+applies immediately and is saved in the active configuration without exposing
+RF control on the LAN. When a loopback datagram size of 8192 bytes is still
+selected, entering a LAN endpoint automatically changes it to the safer
+1200-byte network budget. The receiving application must bind its LAN address
+or `0.0.0.0`, and its host firewall must allow the selected inbound UDP port.
 
 Example with a 2 MS/s source:
 
