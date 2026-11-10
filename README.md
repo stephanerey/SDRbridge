@@ -1,95 +1,88 @@
+[Documentation française](README_FR.md)
+
 # SDRbridge
 
-SDRbridge est un répartiteur RX pour Windows : il ouvre une seule source SDR, publie son flux IQ et permet à plusieurs applications de réception de l’utiliser simultanément sans leur donner le contrôle du matériel.
+SDRbridge is a receive-only distribution bridge for Windows. It opens a single SDR source, publishes its IQ stream, and lets several receiver applications use it simultaneously without giving them control of the radio hardware.
 
-La version 0.6.0 prend en charge une source simulée, le replay SigMF, les fichiers IQ WAV/RF64 de HDSDR ou SDR++, le backend natif SDRplay et un backend générique SoapySDR. Chaque destination UDP peut recevoir son propre débit effectif. QMAP 0.6 conserve son flux Linrad dédié à 96 kS/s, simultanément avec SDR++.
+Version 0.6.0 supports a simulated source, SigMF replay, HDSDR or SDR++ IQ WAV/RF64 files, the native SDRplay backend, and a generic SoapySDR backend. Every UDP destination can receive its own effective sample rate. QMAP 0.6 keeps its dedicated 96 kS/s Linrad stream while running alongside SDR++.
 
-![HDSDR, SDRuno, SDR++, QMAP et SDRbridge partageant le même flux RX](docs/assets/sdrbridge-06-full-stack.png)
+![HDSDR, SDRuno, SDR++, QMAP and SDRbridge sharing one RX stream](docs/assets/sdrbridge-06-full-stack.png)
 
-*Chaîne de qualification 0.6 : HDSDR et SDRuno via l’ExtIO locale, SDR++ via SDBU v2 et QMAP via Linrad 96 kS/s. Six consommateurs sont supervisés, avec 131,1 Mb/s UDP utiles et zéro perte. SDRbridge reste l’unique autorité RF.*
+*SDRbridge 0.6 qualification setup: HDSDR and SDRuno through the local ExtIO adapter, SDR++ through SDBU v2, and QMAP through Linrad at 96 kS/s. Six consumers are monitored, with 131.1 Mb/s of useful UDP traffic and zero loss. SDRbridge remains the sole RF authority.*
 
-## Ce que fait le projet
+## What the project does
 
-- acquisition RX depuis une source unique : SDRplay natif, SoapySDR, simulation, replay SigMF ou fichier IQ WAV/RF64 ;
-- distribution locale multiprocessus par ring partagé SDBR v2 ;
-- transport UDP SDBU v2 avec métadonnées de fréquence, taux, format, séquence et époque ;
-- transport QMAP/Linrad UDP avec resampling filtré à 96 kS/s et fréquence centrale transmise ;
-- profils DSP `CS16`/`CF32` mutualisés par débit de sortie, par exemple 2 MS/s, 1 MS/s, 192 kS/s et 96 kS/s ;
-- interface Qt sombre à barre Windows native pour la radio, les clients et flux, les profils RF et les captures ; diagnostics en fenêtre dédiée, langue Français/English et vue compacte ;
-- connecteur natif SDR++ x64, ExtIO HDSDR Win32 et shim ANTRACK ;
-- capture et replay SigMF 1.2.6 ;
-- fonctionnement strictement RX : aucun chemin TX n’est activé.
+- RX acquisition from one source: native SDRplay, SoapySDR, simulation, SigMF replay, or an IQ WAV/RF64 file;
+- local multiprocess distribution through the SDBR v2 shared-memory ring;
+- SDBU v2 UDP transport carrying frequency, sample rate, format, sequence, and epoch metadata;
+- QMAP/Linrad UDP transport with filtered resampling to 96 kS/s and center-frequency metadata;
+- shared `CS16`/`CF32` DSP profiles at output rates such as 2 MS/s, 1 MS/s, 192 kS/s, and 96 kS/s;
+- a dark Qt interface with a native Windows title bar for radio settings, clients and streams, RF profiles, and captures; a separate diagnostics window, French/English selection, and a compact view;
+- native SDR++ x64 connector, Win32 HDSDR ExtIO adapter, and ANTRACK compatibility shim;
+- SigMF 1.2.6 capture and replay;
+- strictly receive-only operation: no TX path is enabled.
 
 ```text
-SDR / simulation / replay / fichier IQ
+SDR / simulation / replay / IQ file
           |
       SDRbridge
        /  |  \
- SDBU v2 SDBR v2  capture SigMF
+ SDBU v2 SDBR v2  SigMF capture
     |       |
   SDR++   HDSDR / SDRuno / ANTRACK   QMAP/Linrad
 ```
 
-Les applications clientes sont en lecture seule. Changer une fréquence dans SDR++ ou HDSDR ne reconfigure pas le RSPdx : la valeur effective du bridge est réappliquée au client.
+Client applications are read-only. Changing frequency in SDR++ or HDSDR does not retune the RSP: the effective SDRbridge frequency is sent back to the client.
 
-## Compatibilité avec les récepteurs SDR
+## SDR receiver compatibility
 
-| Récepteur | Chemin prévu | État vérifié |
+| Receiver | Intended path | Verified status |
 |---|---|---|
-| SDRplay RSP1A | SoapySDRPlay3 privé | RX réel vérifié à 10 MS/s, avec sorties 4 MS/s + QMAP sans perte |
-| SDRplay RSPdx | backend natif SDRplay ou SoapySDR | RX réel vérifié à 2 MS/s |
-| Clone RSP1 / MSI Panadapter | SoapySDRPlay | RX réel vérifié seul et simultanément avec le RSPdx natif |
-| RTL2832 / RTL-SDR | backend SoapySDR avec `SoapyRTLSDR` | implémenté dans le code, non testé avec une clé réelle |
-| Airspy, HackRF, LimeSDR, UHD, etc. | module SoapySDR correspondant | compatibilité potentielle, non qualifiée |
+| SDRplay RSP1A | private SoapySDRPlay3 runtime | Real RX verified at 10 MS/s with simultaneous 4 MS/s and QMAP outputs and no loss |
+| SDRplay RSPdx | native SDRplay or SoapySDR backend | Real RX verified at 2 MS/s |
+| RSP1 clone / MSI Panadapter | SoapySDRPlay | Real RX verified alone and concurrently with the native RSPdx backend |
+| RTL2832 / RTL-SDR | SoapySDR backend with `SoapyRTLSDR` | Implemented in the code, not tested with real hardware |
+| Airspy, HackRF, LimeSDR, UHD, etc. | matching SoapySDR module | Potential compatibility, not qualified |
 
-L'installateur 0.6.0 embarque uniquement le module matériel
-`SoapySDRPlay3`. Il prend donc en charge les SDRplay immédiatement, mais pas les
-RTL-SDR, USRP/UHD, Airspy, HackRF ou LimeSDR sans ajout et qualification du
-module Soapy correspondant dans le runtime privé de SDRbridge. La pile
-PothosSDR globale du PC n'est volontairement pas chargée.
+The 0.6.0 installer includes only the `SoapySDRPlay3` hardware module. SDRplay receivers therefore work out of the box, while RTL-SDR, USRP/UHD, Airspy, HackRF, and LimeSDR require their matching Soapy module to be added to and qualified with SDRbridge's private runtime. The computer's system-wide PothosSDR stack is deliberately not loaded.
 
-Une clé RTL2832 n’est donc **pas encore qualifiée avec SDRbridge**. Elle nécessite au minimum le pilote WinUSB adapté et l'ajout du module `SoapyRTLSDR` compatible avec le runtime privé. Le périphérique doit ensuite apparaître dans la liste de la page **Radio**.
+An RTL2832 device is therefore **not yet qualified with SDRbridge**. It requires at least a suitable WinUSB driver and a `SoapyRTLSDR` module compatible with the private runtime. The receiver must then appear in the **Radio** source list.
 
-Sur la machine de développement, PothosSDR expose bien la factory `rtlsdr`, mais aucune clé RTL2832 n’était connectée pendant cette vérification. Cette présence logicielle ne constitue pas une preuve de réception matérielle.
+PothosSDR exposes the `rtlsdr` factory on the development computer, but no RTL2832 device was connected during qualification. The presence of that software factory is not evidence of real hardware reception.
 
-## Installer SDRbridge
+## Installing SDRbridge
 
-### Installation simple pour un utilisateur final
+### Simple installation for end users
 
-La version courante est la **[v0.6.0](https://github.com/stephanerey/SDRbridge/releases/tag/v0.6.0)**. L'installateur `SDRbridge_Setup_0.6.0.exe` est fourni comme fichier joint à cette release GitHub.
+The current version is **[v0.6.0](https://github.com/stephanerey/SDRbridge/releases/tag/v0.6.0)**. Download `SDRbridge_Setup_0.6.0.exe` from the assets attached to that GitHub release.
 
-## Licence
+## License
 
-SDRbridge est un logiciel libre distribué sous **GNU GPL v3 ou toute version
-ultérieure** (`GPL-3.0-or-later`). Copyright © 2026 Stéphane REY F1TJJ et
-Philippe Borghini F5JWF. Consultez [LICENSE](LICENSE), [AUTHORS.md](AUTHORS.md)
-et [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+SDRbridge is free software distributed under the **GNU GPL v3 or any later version** (`GPL-3.0-or-later`). Copyright © 2026 Stéphane REY F1TJJ and Philippe Borghini F5JWF. See [LICENSE](LICENSE), [AUTHORS.md](AUTHORS.md), and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-Le logiciel est fourni sans garantie. Les binaires d'une version publiée sont
-accompagnés du code source correspondant dans la release GitHub portant le même
-numéro de version.
+The software is provided without warranty. Published binaries are accompanied by the corresponding source code in the GitHub release carrying the same version number.
 
-**`SDR_Bridge.exe` ne doit pas être copié seul.** Le build actuel est une application portable « en dossier » : l’exécutable dépend des DLL et du répertoire `_internal` placés à côté de lui. Deux distributions sont donc possibles :
+**Do not copy `SDR_Bridge.exe` by itself.** The current build is a portable directory application: the executable depends on the adjacent DLLs and `_internal` directory. Two distribution methods are supported:
 
-- recommandée : le fichier unique `SDRbridge_Setup_0.6.0.exe` après publication de la release ;
-- portable : une archive ZIP contenant le dossier `SDR_Bridge` complet, à extraire sans déplacer l’exécutable hors de ce dossier.
+- recommended: the single `SDRbridge_Setup_0.6.0.exe` installer attached to the release;
+- portable: a ZIP archive containing the complete `SDR_Bridge` directory, extracted without moving the executable out of that directory.
 
-Pour utiliser un RSP, le pilote et l’API SDRplay officiels **3.15** doivent être installés sur le PC. Python, Qt, SoapySDR et SoapySDRPlay3 sont inclus dans SDRbridge : PothosSDR n'est pas requis. Les connecteurs SDR++ et HDSDR s’installent ensuite avec les procédures dédiées plus bas.
+To use an RSP, the official SDRplay **3.15** driver and API must already be installed. Python, Qt, SoapySDR, and SoapySDRPlay3 are included with SDRbridge; PothosSDR is not required. Install the SDR++ and HDSDR connectors separately as described below.
 
-> Le dépôt Git versionne les sources et les DLL clientes, pas les paquets principaux générés `release-v0.x`. Les installateurs validés sont publiés séparément comme fichiers joints aux releases GitHub.
+> The Git repository contains the source code and client DLLs, not the generated `release-v0.x` application packages. Validated installers are published separately as GitHub release assets.
 
-### Construire la distribution depuis les sources
+### Building the distribution from source
 
-#### 1. Installer les prérequis
+#### 1. Install the prerequisites
 
-- Windows 10 ou 11 x64 ;
-- Git ;
-- Python 3.12 x64 ;
-- Visual Studio Build Tools avec **Développement Desktop en C++** et CMake ;
-- l’[API SDRplay](https://www.sdrplay.com/api/) 3.15 pour construire ou utiliser le support des RSP ;
-- Inno Setup 6, facultatif, uniquement pour produire un assistant `Setup.exe`.
+- Windows 10 or 11 x64;
+- Git;
+- Python 3.12 x64;
+- Visual Studio Build Tools with **Desktop development with C++** and CMake;
+- [SDRplay API](https://www.sdrplay.com/api/) 3.15 to build or use RSP support;
+- Inno Setup 6, optional and only required to produce `Setup.exe`.
 
-#### 2. Cloner et préparer l’environnement
+#### 2. Clone and prepare the environment
 
 ```powershell
 git clone https://github.com/stephanerey/SDRbridge.git
@@ -100,88 +93,88 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r packaging\requirements-build.txt
 ```
 
-#### 3. Construire le paquet Windows
+#### 3. Build the Windows package
 
 ```powershell
 .\packaging\build_exe.ps1
 ```
 
-Le script lit la version dans `pyproject.toml`, construit la pile Soapy privée, compile les composants natifs x64/Win32 et place le résultat dans `release-v0.6` :
+The script reads the version from `pyproject.toml`, builds the private Soapy stack, compiles the x64/Win32 native components, and writes the result to `release-v0.6`:
 
-- `release-v0.6\SDR_Bridge\SDR_Bridge.exe` : application portable ;
-- `release-v0.6\SDR_Bridge_Client` et `SDR_Bridge_Native_Client` : clients de diagnostic ;
-- `release-v0.6\Connectors` : connecteurs SDR++, HDSDR et ANTRACK, avec leurs scripts d’installation ;
-- `release-v0.6\installer\SDRbridge_Setup_0.6.0.exe` : installateur créé si Inno Setup 6 est présent.
+- `release-v0.6\SDR_Bridge\SDR_Bridge.exe`: portable application;
+- `release-v0.6\SDR_Bridge_Client` and `SDR_Bridge_Native_Client`: diagnostic clients;
+- `release-v0.6\Connectors`: SDR++, HDSDR, and ANTRACK connectors with their installation scripts;
+- `release-v0.6\installer\SDRbridge_Setup_0.6.0.exe`: installer, when Inno Setup 6 is available.
 
-L’application est installée dans le profil utilisateur (`%LOCALAPPDATA%\Programs\SDRbridge`) et ne demande pas de droits administrateur. Pour une distribution portable, copier ou compresser **tout** le dossier `release-v0.6\SDR_Bridge`.
+The application is installed in the user profile (`%LOCALAPPDATA%\Programs\SDRbridge`) and does not require administrator rights. For portable distribution, copy or compress the **entire** `release-v0.6\SDR_Bridge` directory.
 
-#### 4. Premier démarrage
+#### 4. First start
 
-Tester d’abord l’application sans matériel :
+Test the application without hardware first:
 
 ```powershell
 .\release-v0.6\SDR_Bridge\SDR_Bridge.exe --source simulated
 ```
 
-Pour le RSPdx avec la configuration fournie :
+For an RSPdx with the supplied configuration:
 
 ```powershell
 .\release-v0.6\SDR_Bridge\SDR_Bridge.exe --config .\config.soapy-sdrpp.json
 ```
 
-Le raccourci créé par l’installateur charge `config.soapy-sdrpp.json` : la liste **Source** contient donc les SDR détectés par Soapy. La réception reste arrêtée jusqu’au clic sur **Start**. Un lancement direct de `SDR_Bridge.exe` sans argument conserve la source simulée comme mode sûr.
+The shortcut created by the installer loads `config.soapy-sdrpp.json`, so the **Source** list displays receivers detected by Soapy. Reception remains stopped until **Start** is pressed. Starting `SDR_Bridge.exe` directly without arguments keeps the simulated source as a safe default.
 
-### Capturer un flux IQ
+### Capturing an IQ stream
 
-L'onglet **Captures** propose trois formats :
+The **Captures** tab offers three formats:
 
-- **SigMF 1.2.6**, sous la forme d'une paire `.sigmf-data` et `.sigmf-meta` ;
-- **SDR++ WAV**, en IQ stéréo PCM int16, avec la fréquence exacte en `Hz` dans le nom de fichier comme l'attend le File Source de SDR++ ;
-- **HDSDR WAV**, en IQ stéréo PCM int16 avec un chunk `auxi` SpectraVue/HDSDR contenant la fréquence centrale et les heures UTC de début et de fin.
+- **SigMF 1.2.6**, as a `.sigmf-data` and `.sigmf-meta` pair;
+- **SDR++ WAV**, stereo PCM int16 IQ with the exact frequency in `Hz` in the filename, as expected by SDR++ File Source;
+- **HDSDR WAV**, stereo PCM int16 IQ with a SpectraVue/HDSDR `auxi` chunk containing the center frequency and UTC start and end times.
 
-Cliquer sur **Choose file and start capture…** ouvre la boîte Windows **Enregistrer sous**. Le dossier initial est `C:\Projets\SDRBridge\Captures`; le nom proposé contient la date, l'heure et la fréquence. Le profil de sortie choisi fixe le débit effectif. Un profil CF32 est converti en int16 dans les deux formats WAV. Une discontinuité arrête et finalise la capture, et un fichier existant n'est jamais écrasé.
+Click **Choose file and start capture…** to open the native Windows **Save As** dialog. Its initial directory is `C:\Projets\SDRBridge\Captures`; the suggested filename contains the date, time, and frequency. The selected output profile sets the effective rate. CF32 profiles are converted to int16 for both WAV formats. A discontinuity stops and finalizes the capture, and an existing file is never overwritten.
 
-Les formats SDR++ et HDSDR suivent le conteneur RIFF/WAV classique de ces applications ; une capture est donc limitée à 4 Gio. SigMF reste disponible pour les enregistrements plus longs.
+The SDR++ and HDSDR formats use the applications' conventional RIFF/WAV container, so each recording is limited to 4 GiB. SigMF remains available for longer recordings.
 
-### Lire un fichier IQ HDSDR ou SDR++
+### Playing an HDSDR or SDR++ IQ file
 
-La source fichier accepte les conteneurs WAV/RF64 à deux canaux I/Q, aux formats `uint8`, `int16`, `int32` ou `float32`. Le taux d'échantillonnage est lu dans le fichier. Une valeur `--iq-center-frequency` explicite est prioritaire ; sinon SDRbridge lit le bloc HDSDR/SpectraVue `auxi`, puis recherche la fréquence dans le nom (`103.5MHz`, `144300kHz`, etc.).
+The file source accepts two-channel IQ WAV/RF64 containers containing `uint8`, `int16`, `int32`, or `float32` samples. The sample rate is read from the file. An explicit `--iq-center-frequency` value takes precedence; otherwise SDRbridge reads the HDSDR/SpectraVue `auxi` chunk and then searches the filename for a frequency such as `103.5MHz` or `144300kHz`.
 
-Dans l'onglet **Radio**, ouvrir la liste **Source** puis choisir **Fichier IQ… — Parcourir**, ou cliquer directement sur le bouton dossier placé à droite de la liste. L'explorateur Windows permet alors de sélectionner l'enregistrement. La source SDR active est arrêtée proprement et remplacée par le fichier sans déconnecter le spectre ni les destinations UDP ; la lecture démarre automatiquement. Pour revenir au récepteur, le sélectionner à nouveau dans la même liste.
+On the **Radio** tab, open the **Source** list and choose **IQ file… — Browse**, or click the folder button to the right of the list. Select the recording in the Windows file picker. The active SDR source is stopped cleanly and replaced by the file without disconnecting the spectrum or UDP destinations; playback starts automatically. Select the receiver again from the same list to return to live reception.
 
-La barre d'état indique alors **Fichier IQ …**. Le fichier est lu à sa cadence nominale et les mêmes destinations UDP que pour un SDR réel restent disponibles. La case **Loop IQ file** permet de boucler la lecture. Le replay SigMF reste séparé et inchangé.
+The status bar then identifies the **IQ file** source. The file is played at its nominal rate and the same UDP destinations remain available. Enable **Loop IQ file** to repeat playback. SigMF replay remains separate and unchanged.
 
-### Régler les sorties UDP indépendamment
+### Configuring independent UDP outputs
 
-Dans **Outputs & Clients**, saisir pour chaque client : l'adresse `HOST:PORT`, le transport, le débit de sortie, la taille maximale d'un datagramme et la profondeur de file. **Add client** crée le flux ; sélectionner une ligne puis **Update selected** applique de nouveaux paramètres. Le débit ne peut pas dépasser celui de la source.
+In **Clients & Streams**, enter the destination `HOST:PORT`, transport, output rate, maximum datagram size, and queue depth for each client. **Add client** creates a stream; select a row and press **Update selected** to apply new parameters. The output rate cannot exceed the source rate.
 
-Exemple avec une source à 2 MS/s :
+Example with a 2 MS/s source:
 
-| Port | Débit effectif | Usage possible |
+| Port | Effective rate | Possible use |
 |---:|---:|---|
-| 7355 | 2 000 000 S/s | largeur complète |
-| 7356 | 192 000 S/s | client bande réduite |
-| 7357 | 1 000 000 S/s | client intermédiaire |
+| 7355 | 2,000,000 S/s | full bandwidth |
+| 7356 | 192,000 S/s | narrow-band client |
+| 7357 | 1,000,000 S/s | intermediate client |
 
-Les destinations de même débit et de même format partagent le même traitement DSP. Sur loopback, la taille par défaut est 8192 octets pour réduire les appels UDP ; sur le LAN elle reste à 1200 octets pour éviter la fragmentation. QMAP impose 96 kS/s et 1416 octets.
+Destinations with the same rate and format share one DSP process. The default loopback datagram is 8192 bytes to reduce UDP calls; the LAN default remains 1200 bytes to avoid fragmentation. QMAP requires 96 kS/s and 1416-byte datagrams.
 
-Le réglage de performance global `buffers.block_samples` vaut 32768 par défaut (environ 3,3 ms à 10 MS/s ou 16,4 ms à 2 MS/s). Il est aussi surchargeable au démarrage avec `--block-samples`. Une valeur plus petite réduit la latence mais augmente nettement le nombre d'appels DSP et UDP ; elle ne peut pas être changée pendant une acquisition.
+The global `buffers.block_samples` performance setting defaults to 32768 samples, approximately 3.3 ms at 10 MS/s or 16.4 ms at 2 MS/s. It can also be overridden at startup with `--block-samples`. Smaller values reduce latency but significantly increase DSP and UDP call rates. This value cannot be changed while acquisition is running.
 
-### Journaux et diagnostic d’arrêt
+### Logs and shutdown diagnostics
 
-SDRbridge écrit automatiquement des journaux JSON rotatifs dans :
+SDRbridge automatically writes rotating JSON logs to:
 
 ```text
 %LOCALAPPDATA%\SDRbridge\logs\sdrbridge.log
 ```
 
-Les cinq archives précédentes sont conservées, avec une taille maximale de 5 Mio par fichier. Chaque exécution possède un `run_id` commun au journal et au contrôle natif. Les démarrages, arrêts, erreurs de source, pertes de file et exceptions Python non interceptées y sont enregistrés sans données IQ ni jeton de session.
+The five previous archives are retained, with a maximum size of 5 MiB per file. Every run has a `run_id` shared by the log and native control interface. Starts, stops, source errors, queue losses, and uncaught Python exceptions are recorded without IQ data or session tokens.
 
-Les fautes natives que Python peut intercepter sont écrites séparément dans `sdrbridge-fault.log`. Le chemin du journal courant apparaît aussi dans l’onglet **Diagnostics**. Pour une exécution de développement isolée, `--log-dir PATH` permet de choisir un autre dossier.
+Native faults that Python can intercept are written separately to `sdrbridge-fault.log`. The current log path is also displayed in **Diagnostics**. For an isolated development run, `--log-dir PATH` selects a different directory.
 
-### Plusieurs instances et plusieurs SDR
+### Multiple instances and multiple SDRs
 
-La v0.6 conserve une source active par processus. Plusieurs processus peuvent fonctionner simultanément grâce à un nom d’instance, des ports décalés, des rings distincts et des journaux séparés. Sur la machine de référence, la combinaison vérifiée est : RSPdx par le backend natif et RSP1 par Soapy.
+Version 0.6 keeps one active source per process. Several processes can run concurrently with separate instance names, port offsets, rings, and logs. The verified reference configuration uses the RSPdx through the native backend and the RSP1 through Soapy.
 
 ```powershell
 .\start-sdrbridge.ps1 -Instance rspdx -Config .\config.native-sdrpp.json
@@ -190,116 +183,90 @@ La v0.6 conserve une source active par processus. Plusieurs processus peuvent fo
   -DeviceId 'soapy:sdrplay:0000000001'
 ```
 
-La première instance utilise les ports `47631`/`47632` et UDP `7355`. La seconde utilise `47731`/`47732` et UDP `7455`. Ses journaux se trouvent sous `%LOCALAPPDATA%\SDRbridge\instances\rsp1\logs`.
+The first instance uses ports `47631`/`47632` and UDP `7355`. The second uses `47731`/`47732` and UDP `7455`. Its logs are stored under `%LOCALAPPDATA%\SDRbridge\instances\rsp1\logs`.
 
-SDRbridge 0.6 utilise sa propre pile SoapySDR 0.9 / SoapySDRPlay3 0.5.2 construite contre l'API SDRplay 3.15 et ne charge pas la pile PothosSDR globale. Cette isolation évite les conflits avec SDR++, QMAP et ANTRACK. La prochaine version d'ANTRACK devra adopter le même principe avec son propre runtime qualifié, sans partager les DLL de SDRbridge.
+SDRbridge 0.6 uses its own SoapySDR 0.9 / SoapySDRPlay3 0.5.2 stack built against SDRplay API 3.15 and does not load the global PothosSDR stack. This isolation avoids conflicts with SDR++, QMAP, and ANTRACK. A future ANTRACK release should follow the same approach with its own qualified runtime instead of sharing SDRbridge DLLs.
 
-## Installer la source SDR++
+## Installing the SDR++ source
 
-La source personnalisée a été construite pour **SDR++ 1.3.0 x64**. La DLL précompilée est [`clients/sdrpp_sdbu_source/bin/sdbu_source.dll`](clients/sdrpp_sdbu_source/bin/sdbu_source.dll).
+The custom source was built for **SDR++ 1.3.0 x64**. The prebuilt DLL is [`clients/sdrpp_sdbu_source/bin/sdbu_source.dll`](clients/sdrpp_sdbu_source/bin/sdbu_source.dll).
 
-1. Fermer SDR++.
-2. Depuis PowerShell à la racine du dépôt, lancer le script avec le chemin de l’installation SDR++ :
+1. Close SDR++.
+2. From PowerShell at the repository root, run the installer script with the SDR++ installation path:
 
 ```powershell
 .\clients\sdrpp_sdbu_source\scripts\install.ps1 `
   -SdrppRoot 'E:\Radio\sdrpp_windows_x64_1.3.0\sdrpp_windows_x64'
 ```
 
-3. Redémarrer SDR++ et sélectionner **SDRbridge SDBU v2** dans **Source**.
-4. Conserver `127.0.0.1` et choisir un port UDP, par défaut `7355`.
-5. Dans SDRbridge, ajouter une destination UDP vers ce même port avec le transport `sdbu_v2`.
+3. Restart SDR++ and select **SDRbridge SDBU v2** under **Source**.
+4. Keep `127.0.0.1` and select a UDP port, `7355` by default.
+5. In SDRbridge, add a UDP destination for the same port using the `sdbu_v2` transport.
 
-Chaque instance SDR++ locale doit utiliser son propre port UDP. Le script sauvegarde `config.json`, installe la DLL dans `modules` et crée un manifeste. Le retour arrière est disponible avec :
+Every local SDR++ instance must use its own UDP port. The script backs up `config.json`, installs the DLL in `modules`, and creates a manifest. To roll back:
 
 ```powershell
 .\clients\sdrpp_sdbu_source\scripts\uninstall.ps1 `
   -SdrppRoot 'E:\Radio\sdrpp_windows_x64_1.3.0\sdrpp_windows_x64'
 ```
 
-Les détails de compilation et les limites sont dans le [README du connecteur SDR++](clients/sdrpp_sdbu_source/README.md).
+Build details and limitations are documented in the [SDR++ connector README](clients/sdrpp_sdbu_source/README.md).
 
-## Installer l’ExtIO HDSDR
+## Installing the HDSDR ExtIO adapter
 
-HDSDR est une application 32 bits ; il faut donc utiliser la DLL Win32 précompilée [`native/extio_bridge/bin/ExtIO_SDR_Bridge.dll`](native/extio_bridge/bin/ExtIO_SDR_Bridge.dll).
+HDSDR is a 32-bit application, so it requires the prebuilt Win32 [`native/extio_bridge/bin/ExtIO_SDR_Bridge.dll`](native/extio_bridge/bin/ExtIO_SDR_Bridge.dll).
 
-1. Fermer HDSDR.
-2. Ouvrir PowerShell en tant qu’administrateur depuis la racine du dépôt.
-3. Installer la DLL dans le dossier HDSDR :
+1. Close HDSDR.
+2. Open PowerShell as administrator at the repository root.
+3. Install the DLL in the HDSDR directory:
 
 ```powershell
 .\native\extio_bridge\scripts\install.ps1
 ```
 
-Le chemin par défaut est `C:\Program Files (x86)\HDSDR`. Pour une version portable :
+The default path is `C:\Program Files (x86)\HDSDR`. For a portable installation:
 
 ```powershell
 .\native\extio_bridge\scripts\install.ps1 -HdsdrRoot 'D:\Radio\HDSDR'
 ```
 
-4. Démarrer SDRbridge avant HDSDR.
-5. Dans HDSDR, sélectionner `ExtIO_SDR_Bridge.dll`, puis cliquer sur **Start**.
+4. Start SDRbridge before HDSDR.
+5. In HDSDR, select `ExtIO_SDR_Bridge.dll`, then click **Start**.
 
-L’ExtIO se connecte au contrôle local `127.0.0.1:47631`, ouvre le ring SDBR v2 et notifie HDSDR lorsque la fréquence centrale ou le taux d’échantillonnage change. Elle refuse les demandes de syntonisation provenant de HDSDR afin de conserver SDRbridge comme autorité RF.
+The ExtIO adapter connects to local control endpoint `127.0.0.1:47631`, opens the SDBR v2 ring, and notifies HDSDR when the center frequency or sample rate changes. It rejects tuning requests from HDSDR so that SDRbridge remains the RF authority.
 
-### Transport et débit de l’ExtIO
+### ExtIO transport and sample rate
 
-HDSDR ne reçoit pas son IQ par une destination UDP. Les ports `7355`, `7356`,
-etc. ne le concernent donc pas et ne se configurent pas dans HDSDR. Le port
-`47631` sert uniquement à l’enregistrement et au contrôle local ; les
-échantillons `CS16` passent ensuite par le ring SDBR v2 en mémoire partagée.
+HDSDR does not receive IQ through a UDP destination. Ports `7355`, `7356`, and similar ports therefore do not apply to HDSDR and cannot be configured in it. Port `47631` is used only for local registration and control; `CS16` samples then travel through the SDBR v2 shared-memory ring.
 
-L’ExtIO 0.6 s’attache au ring maître, sans sélectionner de profil décimé. Chaque
-instance HDSDR reçoit donc le débit complet de la source : une source à
-2 MS/s, 4 MS/s ou 10 MS/s est présentée à HDSDR au même débit. HDSDR peut
-effectuer ses propres traitements internes, mais il ne réduit pas le débit lu
-dans SDRbridge.
+The 0.6 ExtIO adapter attaches to the master ring and does not select a decimated profile. Every HDSDR instance therefore receives the complete source rate: a source at 2 MS/s, 4 MS/s, or 10 MS/s is presented to HDSDR at that same rate. HDSDR can perform its own internal processing, but it does not reduce the rate read from SDRbridge.
 
-Un HDSDR apparaît dans **Consommateurs actifs** et ajoute son débit au
-**Débit IQ logique**. Il n’augmente ni le **Débit UDP utile** ni le **Débit
-réseau mesuré**. En `CS16`, 2 MS/s représentent 64 Mb/s logiques par lecteur.
-Plusieurs HDSDR lisent le même ring que SDRbridge n’écrit qu’une fois ; chaque
-processus HDSDR effectue néanmoins ses propres copies, FFT, waterfall et
-démodulation. Côté SDRbridge, quatre lecteurs ExtIO coûtent donc généralement
-moins cher que quatre destinations UDP équivalentes, sans être gratuits pour
-le CPU et la mémoire de la machine entière.
+HDSDR appears under **Active consumers** and adds its rate to the **Logical IQ rate**. It does not increase **Useful UDP rate** or **Measured network rate**. With `CS16`, 2 MS/s represents 64 Mb/s of logical traffic per reader. Several HDSDR processes read the same ring, which SDRbridge writes only once; every HDSDR process still performs its own copies, FFT, waterfall, and demodulation. On the SDRbridge side, four ExtIO readers therefore generally cost less than four equivalent UDP destinations, although they are not free for the computer's overall CPU and memory usage.
 
-La DLL est une ExtIO Win32. **HDSDR 2.81a et SDRuno 1.42.1710 en mode ExtIO
-sont les hôtes certifiés pour la version 0.6.** D’autres applications Win32
-implémentant réellement la même ABI ExtIO peuvent être candidates ; elles ne
-sont pas déclarées compatibles avant un essai explicite.
+The DLL is a Win32 ExtIO adapter. **HDSDR 2.81a and SDRuno 1.42.1710 in ExtIO mode are the certified hosts for version 0.6.** Other Win32 applications that genuinely implement the same ExtIO ABI may be candidates, but are not declared compatible without explicit testing.
 
-### Utiliser la même ExtIO avec SDRuno
+### Using the same ExtIO adapter with SDRuno
 
-SDRuno est en fin de vie chez SDRplay ; sa dernière version officielle est
-1.42.1710. Son installateur inclut `SDRuno.EXTIO.exe` et l’API SDRplay 3.15.
-Fermer SDRbridge et les applications utilisant le RSP avant une installation
-complète afin que l’installeur de l’API puisse terminer normalement.
+SDRuno has reached end of life at SDRplay; its last official version is 1.42.1710. Its installer includes `SDRuno.EXTIO.exe` and SDRplay API 3.15. Close SDRbridge and any application using the RSP before a full installation so that the API installer can complete normally.
 
-1. Copier la même DLL Win32 `ExtIO_SDR_Bridge.dll` dans
-   `C:\Program Files (x86)\SDRplay\SDRuno` avec les droits administrateur.
-2. Démarrer SDRbridge et son acquisition.
-3. Lancer **`SDRuno.EXTIO.exe`**, jamais `SDRuno.exe` pour ce parcours.
-4. Vérifier que **In SR** affiche le débit source, puis cliquer sur **PLAY** et
-   ouvrir **SP1**.
+1. Copy the same Win32 `ExtIO_SDR_Bridge.dll` to `C:\Program Files (x86)\SDRplay\SDRuno` with administrator rights.
+2. Start SDRbridge and its acquisition.
+3. Run **`SDRuno.EXTIO.exe`**, never `SDRuno.exe` for this path.
+4. Check that **In SR** displays the source rate, then press **PLAY** and open **SP1**.
 
-SDRuno utilise alors exactement le même contrôle `127.0.0.1:47631` et le même
-ring maître que HDSDR. Il apparaît comme un consommateur local distinct, sans
-destination UDP et sans décimation par client. La recette réelle 0.6 a validé
-`In SR: 2000000`, le passage PLAY → STOP, un spectre SP1 alimenté et une
-connexion TCP locale établie vers `47631`.
+SDRuno then uses the same `127.0.0.1:47631` control endpoint and master ring as HDSDR. It appears as a separate local consumer, with no UDP destination and no per-client decimation. The real 0.6 qualification verified `In SR: 2000000`, PLAY → STOP, a live SP1 spectrum, and a separate local TCP connection to `47631`.
 
-Pour restaurer la DLL précédente :
+To restore the previous DLL:
 
 ```powershell
 .\native\extio_bridge\scripts\uninstall.ps1
 ```
 
-Voir le [README ExtIO](native/extio_bridge/README.md) pour la compilation et le test natif.
+See the [ExtIO README](native/extio_bridge/README.md) for build and native-test details.
 
-## Développement et lancement direct depuis les sources
+## Development and direct source execution
 
-Pour travailler sans reconstruire le paquet PyInstaller à chaque modification :
+To work without rebuilding the PyInstaller package after every change:
 
 ```powershell
 py -3.12 -m venv .venv
@@ -308,31 +275,31 @@ py -3.12 -m venv .venv
 .\run_bridge.ps1 -Source simulated
 ```
 
-Le lancement matériel est explicite :
+Hardware startup is explicit:
 
 ```powershell
 .\run_bridge.ps1 -Source native
 ```
 
-Le paquet portable local, lorsqu’il a été construit, se lance avec `start-sdrbridge.ps1`. Le script utilise `config.soapy-sdrpp.json` par défaut et accepte `-Instance`, `-PortOffset`, `-Config` et `-DeviceId`.
+After the local portable package has been built, start it with `start-sdrbridge.ps1`. The script uses `config.soapy-sdrpp.json` by default and accepts `-Instance`, `-PortOffset`, `-Config`, and `-DeviceId`.
 
-## Vérifier
+## Verification
 
 ```powershell
 .\run_tests.ps1
 ```
 
-État vérifié au 10 novembre 2026 : 90/90 tests applicatifs passent. Le RSP1A réel a tenu 10 MS/s avec une sortie SDBU 4 MS/s et QMAP 96 kS/s sans perte source, DSP, profil ou UDP. La recette visuelle à 2 MS/s valide simultanément HDSDR 2.81a, SDRuno 1.42.1710, SDR++ 1.3.2 et QMAP 0.6 ; six consommateurs sont supervisés et le compteur global reste à zéro perte. Trois enregistrements HDSDR réels ont été relus ; un enregistrement SDR++ réel et le test d’endurance long restent ouverts.
+Status verified on November 10, 2026: all 90 application tests pass. A real RSP1A sustained a 10 MS/s source with a 4 MS/s SDBU output and QMAP at 96 kS/s, with no source, DSP, profile, or UDP loss. Visual qualification at 2 MS/s simultaneously covers HDSDR 2.81a, SDRuno 1.42.1710, SDR++ 1.3.2, and QMAP 0.6; six consumers are monitored and the global loss counter remains at zero. Three real HDSDR recordings were replayed; replay of a real SDR++ recording and the long endurance test remain open.
 
 ## Documentation
 
-- [Vue technique illustrée de la version 0.6](docs/TECHNICAL_OVERVIEW.md)
-- [Point d’entrée du développement](docs/START_HERE.md)
-- [État réel et réserves](docs/work/CURRENT_STATE.md)
-- [Contrat d’exécution v0.3](docs/specs/06_IMPLEMENTATION_BASELINE.md)
-- [PRD](docs/product/PRD.md)
-- [Rapport de qualification](docs/verification/QUALIFICATION_REPORT.md)
-- [Connecteur SDR++ SDBU v2](clients/sdrpp_sdbu_source/README.md)
-- [ExtIO SDRbridge pour HDSDR](native/extio_bridge/README.md)
+- [Illustrated technical overview of version 0.6](docs/TECHNICAL_OVERVIEW.md)
+- [Development entry point](docs/START_HERE.md)
+- [Verified current state and limitations](docs/work/CURRENT_STATE.md)
+- [v0.3 execution contract](docs/specs/06_IMPLEMENTATION_BASELINE.md)
+- [Product requirements document](docs/product/PRD.md)
+- [Qualification report](docs/verification/QUALIFICATION_REPORT.md)
+- [SDR++ SDBU v2 connector](clients/sdrpp_sdbu_source/README.md)
+- [SDRbridge ExtIO adapter for HDSDR](native/extio_bridge/README.md)
 
-Dépôt : [stephanerey/SDRbridge](https://github.com/stephanerey/SDRbridge).
+Repository: [stephanerey/SDRbridge](https://github.com/stephanerey/SDRbridge).
