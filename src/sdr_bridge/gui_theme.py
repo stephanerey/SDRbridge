@@ -1,5 +1,45 @@
 """Dark native-Qt theme for the SDRbridge v0.7 interface."""
 
+from PyQt5 import QtCore, QtGui, QtWidgets
+
+
+class SDRBridgeProxyStyle(QtWidgets.QProxyStyle):
+    """Fusion style with high-contrast cyan arrows for dark controls."""
+
+    def __init__(self) -> None:
+        super().__init__(QtWidgets.QStyleFactory.create("Fusion"))
+
+    def drawPrimitive(self, element, option, painter, widget=None):  # noqa: N802
+        arrows = {
+            QtWidgets.QStyle.PE_IndicatorArrowDown: False,
+            QtWidgets.QStyle.PE_IndicatorArrowUp: True,
+        }
+        if element not in arrows:
+            return super().drawPrimitive(element, option, painter, widget)
+        rect = option.rect
+        center = rect.center()
+        half_width = max(3, min(5, rect.width() // 4))
+        half_height = max(2, min(4, rect.height() // 5))
+        if arrows[element]:
+            points = (
+                QtCore.QPoint(center.x() - half_width, center.y() + half_height),
+                QtCore.QPoint(center.x() + half_width, center.y() + half_height),
+                QtCore.QPoint(center.x(), center.y() - half_height),
+            )
+        else:
+            points = (
+                QtCore.QPoint(center.x() - half_width, center.y() - half_height),
+                QtCore.QPoint(center.x() + half_width, center.y() - half_height),
+                QtCore.QPoint(center.x(), center.y() + half_height),
+            )
+        color = QtGui.QColor("#39d5e4") if option.state & QtWidgets.QStyle.State_Enabled else QtGui.QColor("#61798b")
+        painter.save()
+        painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        painter.setPen(QtCore.Qt.NoPen)
+        painter.setBrush(color)
+        painter.drawPolygon(QtGui.QPolygon(points))
+        painter.restore()
+
 DARK_STYLESHEET = r"""
 QWidget {
     color: #dceaf4;
@@ -49,7 +89,7 @@ QLineEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox, QComboBox {
 QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
     border-color: #39d5e4;
 }
-QComboBox::drop-down { border: 0; width: 24px; }
+QComboBox::drop-down { border: 0; border-left: 1px solid #3a5267; width: 24px; }
 QComboBox QAbstractItemView { background: #132a3e; border: 1px solid #35566e; selection-background-color: #246ca8; }
 QPushButton, QToolButton {
     background: #17334c;
@@ -106,8 +146,11 @@ QSlider::groove:vertical { width: 4px; background: #52606a; border-radius: 2px; 
 QSlider::sub-page:vertical { background: #3ad3e2; border-radius: 2px; }
 QSlider::handle:vertical { background: #39d5e4; height: 14px; margin: 0 -5px; border-radius: 7px; }
 QCheckBox { color: #bad0e0; spacing: 7px; }
-QCheckBox::indicator { width: 14px; height: 14px; }
+QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; }
+QCheckBox::indicator:unchecked { background: #0b1c2c; border: 1px solid #6f91a8; }
+QCheckBox::indicator:unchecked:hover { background: #132f45; border-color: #39d5e4; }
 QCheckBox::indicator:checked { background: #28cdbf; border: 1px solid #61f2df; border-radius: 3px; }
+QCheckBox::indicator:disabled { background: #102438; border-color: #385166; }
 QMenu { background: #102236; border: 1px solid #31536a; padding: 5px; }
 QMenu::item { padding: 7px 24px; border-radius: 4px; }
 QMenu::item:selected { background: #1e5278; }

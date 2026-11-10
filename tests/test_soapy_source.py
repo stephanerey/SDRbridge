@@ -116,6 +116,42 @@ class FakeOverflowDevice(FakeStreamingDevice):
         return SimpleNamespace(ret=-1, timeNs=0)
 
 
+class FakeSparseGenericDevice:
+    """RX device with no bandwidth, antenna, AGC, or gain controls."""
+
+    def __init__(self):
+        self.rate = 2_000_000.0
+        self.frequency = 5_800_000_000.0
+        self.bandwidth_writes = 0
+
+    def listSampleRates(self, *_args): return [1_000_000, 2_000_000]
+    def getSampleRateRange(self, *_args): return []
+    def listBandwidths(self, *_args): raise RuntimeError("NOT_SUPPORTED")
+    def getBandwidthRange(self, *_args): raise RuntimeError("NOT_SUPPORTED")
+    def listAntennas(self, *_args): return []
+    def listGains(self, *_args): return []
+    def hasGainMode(self, *_args): raise RuntimeError("NOT_SUPPORTED")
+    def getFrequencyRanges(self, *_args): return [(70_000_000, 6_000_000_000, 0)]
+    def setSampleRate(self, _direction, _channel, value): self.rate = value
+    def setFrequency(self, _direction, _channel, value): self.frequency = value
+    def setBandwidth(self, *_args): self.bandwidth_writes += 1; raise AssertionError("must not be called")
+    def getSampleRate(self, *_args): return self.rate
+    def getFrequency(self, *_args): return self.frequency
+
+
+class FakeSparseGenericApi:
+    SOAPY_SDR_RX = 1
+    device = FakeSparseGenericDevice()
+
+    @staticmethod
+    def Device_enumerate(_args):
+        return [{"driver": "uhd", "addr": "192.0.2.20", "type": "b100", "label": "USRP B100"}]
+
+    @classmethod
+    def Device(cls, _raw):
+        return cls.device
+
+
 class SoapyDiscoveryTests(unittest.TestCase):
     def test_only_sdr_devices_are_exposed_with_stable_ids(self):
         source = SoapySource(api=FakeSoapyApi)
@@ -146,6 +182,27 @@ class SoapyDiscoveryTests(unittest.TestCase):
         effective = source.configure(RadioConfig(gains={"IFGR": 35, "RFGR": 2}, antenna="RX"))
         self.assertEqual(effective.gains, {"IFGR": 35.0, "RFGR": 2.0})
         self.assertEqual(effective.gain_reduction_db, 35)
+
+    def test_generic_device_without_optional_controls_remains_usable(self):
+        api = FakeSparseGenericApi
+        api.device = FakeSparseGenericDevice()
+        source = SoapySource(api=api)
+        first_id = source.enumerate()[0].device_id
+        second_id = source.enumerate()[0].device_id
+        self.assertEqual(first_id, second_id)
+        self.assertTrue(first_id.startswith("soapy:uhd:"))
+        source.open(first_id)
+        capabilities = source.capabilities(first_id)
+        self.assertEqual(capabilities.frequency_ranges_hz, ((70_000_000, 6_000_000_000),))
+        self.assertEqual(capabilities.bandwidths_hz, ())
+        self.assertFalse(capabilities.agc_available)
+        effective = source.configure(RadioConfig(
+            center_frequency_hz=5_800_000_000,
+            sample_rate_sps=2_000_000,
+            bandwidth_hz=1_536_000,
+        ))
+        self.assertEqual(effective.center_frequency_hz, 5_800_000_000)
+        self.assertEqual(api.device.bandwidth_writes, 0)
 
     def test_stream_requests_direct_cs16_and_skips_python_cf32_conversion(self):
         api = FakeStreamingApi

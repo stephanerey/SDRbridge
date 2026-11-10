@@ -9,10 +9,11 @@ from unittest import mock
 
 import numpy as np
 
-from PyQt5 import QtTest, QtWidgets
+from PyQt5 import QtCore, QtGui, QtTest, QtWidgets
 
 from sdr_bridge.bridge import SDRBridge
 from sdr_bridge.gui import AbsoluteFrequencyAxis, BridgeWindow, SpectrumService, prepare_gui
+from sdr_bridge.gui_theme import DARK_STYLESHEET, SDRBridgeProxyStyle
 from sdr_bridge.model import DeviceDescriptor, RadioConfig
 from sdr_bridge.native_sdrplay import NativeSDRplaySource
 from sdr_bridge.recording import CaptureFormat
@@ -35,6 +36,26 @@ class QtInterfaceTests(unittest.TestCase):
         application = prepare_gui()
         self.assertEqual(application.applicationName(), "SDRbridge")
         self.assertFalse(application.windowIcon().isNull())
+
+    def test_dark_controls_have_visible_unchecked_boxes_and_cyan_arrows(self):
+        self.assertIn("QCheckBox::indicator:unchecked", DARK_STYLESHEET)
+        self.assertIn("border: 1px solid #6f91a8", DARK_STYLESHEET)
+        style = SDRBridgeProxyStyle()
+        image = QtGui.QImage(24, 24, QtGui.QImage.Format_ARGB32)
+        image.fill(QtCore.Qt.transparent)
+        painter = QtGui.QPainter(image)
+        option = QtWidgets.QStyleOption()
+        option.rect = QtCore.QRect(0, 0, 24, 24)
+        option.state = QtWidgets.QStyle.State_Enabled
+        style.drawPrimitive(QtWidgets.QStyle.PE_IndicatorArrowDown, option, painter)
+        painter.end()
+        cyan_pixels = 0
+        for y in range(image.height()):
+            for x in range(image.width()):
+                color = image.pixelColor(x, y)
+                if color.green() > 170 and color.blue() > 180 and color.red() < 100:
+                    cyan_pixels += 1
+        self.assertGreater(cyan_pixels, 10)
 
     def test_lan_destination_switches_loopback_datagram_default_to_1200(self):
         self.window.destination_edit.setText("192.0.2.10:7356")
@@ -328,6 +349,38 @@ class QtInterfaceTests(unittest.TestCase):
         labels = [self.window.device_combo.itemText(i) for i in range(self.window.device_combo.count())]
         self.assertIn("soapy/sdrplay: RSPdx — S/N 2001077942", labels)
         self.assertIn("soapy/sdrplay: RSP1 — S/N 0000000001", labels)
+
+    def test_discovery_only_start_selects_first_receiver_and_loads_controls(self):
+        selected = []
+        self.bridge.device_id = None
+        self.window._capabilities = {}
+        self.window._capability_refresh_attempts = 0
+
+        class RuntimeStub:
+            recorder = None
+            log_path = None
+
+            def available_sources(runtime_self):
+                return [
+                    DeviceDescriptor(
+                        SimulatedSource.DEVICE_ID, "simulated", "Simulation", "seed-1"
+                    ).to_dict()
+                ]
+
+            def select_source_device(runtime_self, device_id):
+                selected.append(device_id)
+                self.bridge.select_device(device_id)
+
+            def close(runtime_self):
+                pass
+
+        self.window.runtime = RuntimeStub()
+        self.window._refresh_devices()
+
+        self.assertEqual(selected, [SimulatedSource.DEVICE_ID])
+        self.assertEqual(self.bridge.device_id, SimulatedSource.DEVICE_ID)
+        self.assertTrue(self.window._capabilities)
+        self.assertGreater(self.window.rate_combo.count(), 0)
 
     def test_rejected_source_selection_restores_effective_source(self):
         hardware_id = "soapy:sdrplay:test-rsp1a"

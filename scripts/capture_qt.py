@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt5 import QtTest, QtWidgets
 
 from sdr_bridge.bridge import SDRBridge
-from sdr_bridge.gui import BridgeWindow
+from sdr_bridge.gui import BridgeWindow, prepare_gui
 from sdr_bridge.model import DeviceCapabilities, DeviceDescriptor, SampleFormat
 from sdr_bridge.source import SimulatedSource
 
@@ -89,7 +89,7 @@ def main() -> int:
     parser.add_argument("--language", choices=("en", "fr"), default="en")
     args = parser.parse_args()
     output = Path(args.output); output.mkdir(parents=True, exist_ok=True)
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    app = prepare_gui()
     bridge = SDRBridge(VisualRSP1ASource(block_samples=4096), block_samples=4096)
     bridge.start()
     window = BridgeWindow(bridge, CaptureRuntime(bridge)); window.language = args.language; window._retranslate_ui(); window.show(); QtTest.QTest.qWait(300)

@@ -12,6 +12,8 @@ from PyQt5 import QtCore
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QHBoxLayout, QLabel, QWidget
 
+from .model import MAX_CENTER_FREQUENCY_HZ
+
 
 class _Digit(QLabel):
     stepRequested = QtCore.pyqtSignal(int)
@@ -69,7 +71,7 @@ class FrequencyControlWidget(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._min_hz = 1_000
-        self._max_hz = 2_000_000_000
+        self._max_hz = MAX_CENTER_FREQUENCY_HZ
         self._value_hz = 144_300_000
         self._steps = (
             100_000_000_000, 10_000_000_000, 1_000_000_000,

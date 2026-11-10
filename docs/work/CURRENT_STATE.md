@@ -1,4 +1,4 @@
-# État réel — SDRbridge 0.6.1 publiée — 10 novembre 2026
+# État réel — SDRbridge 0.7.0.dev1 en développement — 10 novembre 2026
 
 ## Implémenté
 
@@ -8,7 +8,7 @@
 - Backend Soapy générique intégré au paquet Windows via la couche ctypes, avec catalogue filtré par backend, modèle et numéro de série.
 - Inventaire réel : RSPdx `2001077942`, clone RSP1 `0000000001` et backend MSi2500 ; les périphériques audio Pothos sont exclus.
 - Instances nommées : configuration, logs et rings isolés ; `--port-offset` décale les ports de contrôle et UDP ; `--device-id` sélectionne explicitement le récepteur.
-- Interface Qt 0.6.0 affichant la source effective, le nom de l'instance et les paramètres de chaque destination UDP.
+- Interface Qt 0.7.0.dev1 affichant la source effective, le nom de l'instance et les paramètres de chaque destination UDP.
 - Icône SDRbridge dédiée, lisible de 16×16 à 256×256, appliquée à l'exécutable, aux fenêtres Qt, à la barre des tâches, aux raccourcis et à l'installeur ; l'identifiant d'application Windows stabilise aussi l'icône épinglée.
 - Paquet portable et installateur construits à partir de la version de `pyproject.toml`, avec aide, licences et connecteurs inclus.
 - Transport QMAP 0.6/Linrad UDP RX : resampling mutualisé 96 kS/s, trames fixes 1416 octets, fréquence centrale et convention spectrale QMAP ; coexistence configurée avec SDR++.
@@ -37,6 +37,7 @@
 - La réception Soapy demande le format natif CS16. Le dispatcher écrit le ring maître et alimente une file DSP dédiée sans attendre le rééchantillonnage des clients ; les pertes et temps des deux étages sont exposés séparément. Les blocs par défaut sont de 32768 échantillons et le débit mesuré est recalculé toutes les 500 ms.
 - Un retour Soapy `OVERFLOW` n'arrête plus l'acquisition : il crée une discontinuité `SOURCE_LOSS`, réinitialise l'index d'échantillon et incrémente les pertes source, puis la lecture continue. Le journal `SOAPY_RX_OVERFLOW` est limité à une entrée toutes les cinq secondes.
 - Les destinations UDP LAN disposent d'une autorisation sortante dédiée, persistante et activable dans **Settings**, sans ouvrir le contrôle RF natif. La saisie d'une adresse distante remplace automatiquement le budget loopback de 8192 octets par 1200 octets. Les README et l'aide intégrée documentent aussi explicitement l'assistance IA et l'usage de la SR Method 4.1 d'Auroramind.
+- La branche `codex/generic-soapy-uhd` construit désormais un runtime privé SoapySDR 0.8.1 avec les factories `sdrplay`, `rtlsdr`, `airspy`, `airspyhf`, `lime`, `plutosdr` et `uhd`. La GUI tolère les matériels sans bande passante, antenne, AGC ou gains optionnels, limite le VFO aux plages réellement annoncées et accepte les fréquences USRP jusqu'à 999,999999999 GHz. Les cases décochées et les flèches de listes/spinboxes restent visibles sur le thème sombre.
 
 ## Preuves obtenues
 
@@ -62,6 +63,9 @@
 - 90/90 tests applicatifs verts après ajout de l'export diagnostic, de la pile de livraison et du pipeline DSP en cascade multicœur. Qualification RSP1A réelle de 60 s avec le runtime privé SoapySDR 0.9 / SoapySDRPlay3 0.5.2, source 10 MS/s, sortie SDBU 4 MS/s et QMAP 96 kS/s : 10,064 MS/s mesurés, zéro perte source, zéro drop DSP/profil et zéro erreur.
 - 91/91 tests applicatifs verts en 0.6.1, dont le chargement de l'icône Qt globale. L'icône extraite de l'exécutable et de l'installeur correspond au master multi-résolution ; installation isolée, lancement `--version` et désinstallation terminent avec le code 0.
 - 93/93 tests applicatifs verts après séparation de l'autorisation UDP LAN et du contrôle réseau natif, persistance immédiate du réglage et bascule automatique du datagramme distant à 1200 octets.
+- 96/96 tests applicatifs verts après généralisation Soapy, ajout UHD/B100 et sélection effective du premier récepteur lors d'un démarrage en découverte. Reconstruction reproductible réussie du cœur privé ABI 0.8.1 et des sept factories ; preuve logicielle uniquement pour RTL-SDR, Airspy, Lime, Pluto et UHD tant que les récepteurs réels n'ont pas été qualifiés.
+- Smoke RSP1A réel de la branche générique : le démarrage avec `device_id: null` sélectionne le RSP1A détecté, charge ses 19 débits, huit bandes passantes, l'antenne RX, AGC, IFGR et RFGR, puis maintient environ 2,032 MS/s avec trois consommateurs et zéro perte.
+- Paquet Windows 0.7.0.dev1 qualifié avec les sept modules privés : le RSP1A `2236027C98` est détecté, 20 énumérations complètes consécutives puis cinq énumérations après acquisition terminent avec le code 0. L'exécutable empaqueté atteint `RUNTIME_READY` et reçoit réellement pendant 12 s sans faute ni erreur. Les 96 tests applicatifs passent en 43,653 s. Installateur : 83 451 865 octets, SHA-256 `998CFD4E75DACC14F7346204B7B22058176BD0EFF22B93E0BCDE4CE7E251A3C1`.
 - Distribution portable et installateur 0.6.0 finaux construits. Installation silencieuse dans un dossier isolé, chargement du runtime Soapy privé et désinstallation réussis avec les codes 0 ; aucune copie de `sdrplay_api.dll` n'est redistribuée. SHA-256 de l'installateur final : `82DF0435C88B200D3E59A654EDA3A936F075921C2BC18F7CDE068B51F24310F7`.
 - HDSDR 2.81a installé sur la session réelle avec le dernier build Win32 `ExtIO_SDR_Bridge.dll` : chargement automatique, ring local actif, 2 MS/s affichés et spectrum/waterfall alimentés. La connexion observée est `127.0.0.1:<port éphémère> → 127.0.0.1:47631`; aucun endpoint UDP `7356` n’est utilisé.
 - SDRuno final 1.42.1710 installé depuis le paquet officiel signé SDRPLAY LIMITED sans modifier l’API 3.15 existante. `SDRuno.EXTIO.exe` charge la même DLL Win32 depuis son dossier programme, affiche `In SR: 2000000`, passe de PLAY à STOP, alimente SP1 et ouvre une seconde connexion locale indépendante vers `127.0.0.1:47631` simultanément avec HDSDR.
@@ -77,13 +81,12 @@
 
 ## Réserves explicites
 
-- Les anciennes réserves Pothos/SDRplay 3.07 sont levées pour SDRbridge : la distribution embarque un ensemble cohérent SoapySDR 0.9 + SoapySDRPlay3 0.5.2, construit proprement contre l'API SDRplay 3.15. Cette pile reste privée à l'application.
+- Les anciennes réserves Pothos/SDRplay 3.07 sont levées pour SDRbridge : la distribution embarque une copie privée du cœur SoapySDR 0.8.1 Pothos VC16 et sept modules privés, dont SoapySDRPlay3 construit contre l'API SDRplay 3.15. PothosSDR reste un prérequis de compilation, pas d'exécution.
 - Aucune clé RTL2832 réelle ni USRP B100 n'a encore été qualifié. Leur compatibilité dépend du module Soapy correspondant (`rtlsdr` ou `uhd`).
-- L'installateur 0.6.1 n'est pas signé ; Windows peut afficher un avertissement SmartScreen.
+- L'installateur 0.7.0.dev1 n'est pas signé ; Windows peut afficher un avertissement SmartScreen.
 - Le gate historique d'endurance reste ouvert : le run simulé final de 10 minutes a produit des drops tardifs, donc le run 60 minutes n'a pas été lancé.
 - La source fichier 0.6.0 est validée sur trois enregistrements HDSDR réels int16 à 2 MS/s et sur des vecteurs SDR++ générés ; un enregistrement SDR++ réel reste à rejouer avant publication.
 - Les writers WAV suivent les contrats binaires HDSDR/SpectraVue et SDR++ et sont relus par SDRbridge ; leur lecture dans les applications tierces elles-mêmes reste à qualifier. Le RIFF/WAV classique est limité à 4 Gio.
-- L'installateur 0.6.1 n'est pas signé numériquement ; SmartScreen peut donc avertir l'utilisateur.
 - La refonte v0.7 et la cohérence linguistique sont validées hors écran ; la recette native Windows/DPI reste à faire avant gel graphique.
 
 ## Reprise

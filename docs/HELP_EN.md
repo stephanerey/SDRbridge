@@ -85,6 +85,11 @@ Other Win32 ExtIO hosts are not guaranteed without an explicit test.
 SDRbridge includes its own SoapySDR runtime. Do not copy its DLLs into
 PothosSDR, ANTRACK or SDR++.
 
+The post-0.6.1 development build adds private ABI 0.8 modules for RTL-SDR,
+Airspy R2, Airspy HF+, LimeSDR, ADALM-Pluto and USRP/UHD. Hardware controls are
+shown only when the selected module reports them. The first USRP B100 test
+should use 1 MS/s, then 4 MS/s, with **Total losses** remaining at zero.
+
 The 0.6.1 package includes only the `SoapySDRPlay3` hardware module. SDRplay
 receivers are therefore the only hardware supported out of the box by this
 installer. RTL-SDR, USRP/UHD, Airspy, HackRF or LimeSDR requires a compatible

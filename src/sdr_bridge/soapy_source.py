@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import threading
 import time
@@ -35,6 +37,7 @@ class SoapySource(IQSource):
         "airspyhf": 41,
         "hackrf": 50,
         "lime": 60,
+        "plutosdr": 61,
         "miri": 90,
     }
 
@@ -88,7 +91,20 @@ class SoapySource(IQSource):
         serial = raw.get("serial") or raw.get("device_id")
         driver = raw.get("driver", self.driver or "unknown").lower()
         label = raw.get("label") or raw.get("hardware") or raw.get("product") or driver
-        stable = serial or f"enumeration-{index}"
+        # Many Soapy modules (RTL-SDR, UHD network discovery, remote, etc.) do
+        # not expose a field literally named ``serial``.  Derive a stable key
+        # from their discovery arguments instead of tying profiles to the
+        # current enumeration order.  The label is intentionally excluded: it
+        # is presentation text and some modules localise or decorate it.
+        identity_args = {
+            str(key): str(value)
+            for key, value in raw.items()
+            if str(key).lower() not in {"driver", "label"}
+        }
+        fingerprint = hashlib.sha256(
+            json.dumps(identity_args, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()[:16]
+        stable = serial or (fingerprint if identity_args else f"enumeration-{index}")
         return DeviceDescriptor(f"soapy:{driver}:{stable}", f"soapy/{driver}", label, serial=serial)
 
     def enumerate(self) -> list[DeviceDescriptor]:
@@ -121,52 +137,98 @@ class SoapySource(IQSource):
         temporary = self._device is None or self._descriptor is None or self._descriptor.device_id != device_id
         device = self._api().Device(self._raw_for_id(device_id)) if temporary else self._device
         api = self._api()
-        rate_ranges = self._read_ranges(device, "getSampleRateRange", api)
-        rates = tuple(sorted({int(round(value)) for value in device.listSampleRates(api.SOAPY_SDR_RX, 0)}))
-        if not rates:
-            rates = self._values_from_ranges(rate_ranges, self._config.sample_rate_sps)
-        antennas = tuple(device.listAntennas(api.SOAPY_SDR_RX, 0))
-        gains = {}
-        gain_values = {}
-        gain_steps = {}
-        for name in device.listGains(api.SOAPY_SDR_RX, 0):
-            if hasattr(device, "getGainRange"):
-                low, high, *step = device.getGainRange(api.SOAPY_SDR_RX, 0, name)
-                gains[name] = (float(low), float(high))
-                gain_steps[name] = float(step[0]) if step and step[0] else 1.0
-            if hasattr(device, "getGain"):
-                gain_values[name] = float(device.getGain(api.SOAPY_SDR_RX, 0, name))
-        frequency_ranges = ((1_000, 2_000_000_001),)
-        if hasattr(device, "getFrequencyRanges"):
-            frequency_ranges = tuple((int(low), int(high)) for low, high, *_ in device.getFrequencyRanges(api.SOAPY_SDR_RX, 0))
-        bandwidth_ranges = self._read_ranges(device, "getBandwidthRange", api)
-        bandwidths = ()
-        if hasattr(device, "listBandwidths"):
-            bandwidths = tuple(sorted({int(round(value)) for value in device.listBandwidths(api.SOAPY_SDR_RX, 0)}))
-        if not bandwidths:
-            bandwidths = self._values_from_ranges(bandwidth_ranges, self._config.bandwidth_hz)
-        if not bandwidths:
-            bandwidths = rates
-        agc_available = bool(device.hasGainMode(api.SOAPY_SDR_RX, 0)) if hasattr(device, "hasGainMode") else False
-        result = DeviceCapabilities(
-            device_id, frequency_ranges, rates, bandwidths, antennas, gains,
-            agc_available, (SampleFormat.CS16,), 1, rate_ranges,
-            bandwidth_ranges, gain_values, gain_steps,
-        )
-        if temporary:
-            close = getattr(device, "close", None)
-            if callable(close):
-                close()
-        return result
+        try:
+            rate_ranges = self._read_ranges(device, "getSampleRateRange", api)
+            rates = tuple(sorted({
+                int(round(value)) for value in self._optional_call(
+                    device, "listSampleRates", api.SOAPY_SDR_RX, 0, default=()
+                ) if float(value) > 0
+            }))
+            if not rates:
+                rates = self._values_from_ranges(rate_ranges, self._config.sample_rate_sps)
+            if not rates:
+                rates = (self._config.sample_rate_sps,)
+            antennas = tuple(str(value) for value in self._optional_call(
+                device, "listAntennas", api.SOAPY_SDR_RX, 0, default=()
+            ))
+            gains: dict[str, tuple[float, float]] = {}
+            gain_values: dict[str, float] = {}
+            gain_steps: dict[str, float] = {}
+            gain_names = tuple(str(value) for value in self._optional_call(
+                device, "listGains", api.SOAPY_SDR_RX, 0, default=()
+            ))
+            for name in gain_names:
+                value_range = self._optional_call(
+                    device, "getGainRange", api.SOAPY_SDR_RX, 0, name, default=None
+                )
+                if value_range is not None:
+                    low, high, *step = value_range
+                    gains[name] = (float(low), float(high))
+                    gain_steps[name] = float(step[0]) if step and step[0] else 1.0
+                value = self._optional_call(
+                    device, "getGain", api.SOAPY_SDR_RX, 0, name, default=None
+                )
+                if value is not None:
+                    gain_values[name] = float(value)
+            raw_frequency_ranges = self._optional_call(
+                device, "getFrequencyRanges", api.SOAPY_SDR_RX, 0, default=()
+            )
+            frequency_ranges = tuple(
+                (int(round(low)), int(round(high)))
+                for low, high, *_ in raw_frequency_ranges
+                if float(high) >= float(low) and float(high) > 0
+            )
+            bandwidth_ranges = self._read_ranges(device, "getBandwidthRange", api)
+            bandwidths = tuple(sorted({
+                int(round(value)) for value in self._optional_call(
+                    device, "listBandwidths", api.SOAPY_SDR_RX, 0, default=()
+                ) if float(value) > 0
+            }))
+            if not bandwidths:
+                bandwidths = self._values_from_ranges(bandwidth_ranges, self._config.bandwidth_hz)
+            agc_available = bool(self._optional_call(
+                device, "hasGainMode", api.SOAPY_SDR_RX, 0, default=False
+            ))
+            return DeviceCapabilities(
+                device_id, frequency_ranges, rates, bandwidths, antennas, gains,
+                agc_available, (SampleFormat.CS16,), 1, rate_ranges,
+                bandwidth_ranges, gain_values, gain_steps,
+            )
+        finally:
+            if temporary:
+                close = getattr(device, "close", None)
+                if callable(close):
+                    close()
+
+    @staticmethod
+    def _optional_call(device: Any, method_name: str, *args: Any, default: Any = None) -> Any:
+        """Call an optional Soapy capability without rejecting the device.
+
+        Soapy modules legitimately omit controls such as bandwidth, antenna,
+        AGC, or individual gain stages.  Discovery of one optional control
+        must not make an otherwise valid RX device unusable.
+        """
+        method = getattr(device, method_name, None)
+        if method is None:
+            return default
+        try:
+            return method(*args)
+        except (AttributeError, NotImplementedError, RuntimeError, TypeError, ValueError) as exc:
+            logger.debug(
+                "optional Soapy capability is unavailable",
+                extra={"code": "SOAPY_OPTIONAL_CAPABILITY", "details": {"method": method_name, "error": str(exc)}},
+            )
+            return default
 
     @staticmethod
     def _read_ranges(device: Any, method_name: str, api: Any) -> tuple[tuple[float, float, float], ...]:
-        method = getattr(device, method_name, None)
-        if method is None:
-            return ()
+        values = SoapySource._optional_call(
+            device, method_name, api.SOAPY_SDR_RX, 0, default=()
+        )
         return tuple(
             (float(item[0]), float(item[1]), float(item[2]) if len(item) > 2 else 0.0)
-            for item in method(api.SOAPY_SDR_RX, 0)
+            for item in values
+            if len(item) >= 2 and float(item[1]) >= float(item[0])
         )
 
     @staticmethod
@@ -194,14 +256,24 @@ class SoapySource(IQSource):
             raise RuntimeError("Soapy source is not open")
         dev.setSampleRate(api.SOAPY_SDR_RX, 0, float(config.sample_rate_sps))
         dev.setFrequency(api.SOAPY_SDR_RX, 0, float(config.center_frequency_hz))
-        if hasattr(dev, "setBandwidth"):
+        bandwidths = self._optional_call(dev, "listBandwidths", api.SOAPY_SDR_RX, 0, default=())
+        bandwidth_ranges = self._read_ranges(dev, "getBandwidthRange", api)
+        if (bandwidths or bandwidth_ranges) and hasattr(dev, "setBandwidth"):
             dev.setBandwidth(api.SOAPY_SDR_RX, 0, float(config.bandwidth_hz))
-        if config.antenna:
+        antennas = tuple(str(value) for value in self._optional_call(
+            dev, "listAntennas", api.SOAPY_SDR_RX, 0, default=()
+        ))
+        if config.antenna and config.antenna in antennas:
             dev.setAntenna(api.SOAPY_SDR_RX, 0, config.antenna)
-        if hasattr(dev, "hasGainMode") and dev.hasGainMode(api.SOAPY_SDR_RX, 0):
+        gain_mode_available = bool(self._optional_call(
+            dev, "hasGainMode", api.SOAPY_SDR_RX, 0, default=False
+        ))
+        if gain_mode_available:
             dev.setGainMode(api.SOAPY_SDR_RX, 0, bool(config.agc_enabled))
         if not config.agc_enabled:
-            available_gains = set(dev.listGains(api.SOAPY_SDR_RX, 0))
+            available_gains = set(str(value) for value in self._optional_call(
+                dev, "listGains", api.SOAPY_SDR_RX, 0, default=()
+            ))
             requested_gains = dict(config.gains)
             if "IFGR" in available_gains and "IFGR" not in requested_gains:
                 requested_gains["IFGR"] = config.gain_reduction_db
@@ -220,17 +292,31 @@ class SoapySource(IQSource):
         request.validate()
         self._set_requested(request)
         dev, api = self._device, self._api()
-        frequency = int(round(dev.getFrequency(api.SOAPY_SDR_RX, 0))) if hasattr(dev, "getFrequency") else request.center_frequency_hz
-        rate = int(round(dev.getSampleRate(api.SOAPY_SDR_RX, 0))) if hasattr(dev, "getSampleRate") else request.sample_rate_sps
-        bandwidth = int(round(dev.getBandwidth(api.SOAPY_SDR_RX, 0))) if hasattr(dev, "getBandwidth") else request.bandwidth_hz
-        gain_names = tuple(dev.listGains(api.SOAPY_SDR_RX, 0))
+        frequency = int(round(self._optional_call(
+            dev, "getFrequency", api.SOAPY_SDR_RX, 0, default=request.center_frequency_hz
+        )))
+        rate = int(round(self._optional_call(
+            dev, "getSampleRate", api.SOAPY_SDR_RX, 0, default=request.sample_rate_sps
+        )))
+        bandwidth = int(round(self._optional_call(
+            dev, "getBandwidth", api.SOAPY_SDR_RX, 0, default=request.bandwidth_hz
+        )))
+        gain_names = tuple(str(value) for value in self._optional_call(
+            dev, "listGains", api.SOAPY_SDR_RX, 0, default=()
+        ))
         gains = {
-            name: float(dev.getGain(api.SOAPY_SDR_RX, 0, name))
+            name: float(value)
             for name in gain_names
-            if hasattr(dev, "getGain")
+            if (value := self._optional_call(
+                dev, "getGain", api.SOAPY_SDR_RX, 0, name, default=None
+            )) is not None
         }
-        agc = bool(dev.getGainMode(api.SOAPY_SDR_RX, 0)) if hasattr(dev, "getGainMode") else request.agc_enabled
-        antenna = dev.getAntenna(api.SOAPY_SDR_RX, 0) if hasattr(dev, "getAntenna") else request.antenna
+        agc = bool(self._optional_call(
+            dev, "getGainMode", api.SOAPY_SDR_RX, 0, default=request.agc_enabled
+        ))
+        antenna = self._optional_call(
+            dev, "getAntenna", api.SOAPY_SDR_RX, 0, default=request.antenna
+        )
         self._config = RadioConfig(
             center_frequency_hz=frequency,
             sample_rate_sps=rate,

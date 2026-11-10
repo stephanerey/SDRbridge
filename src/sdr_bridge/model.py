@@ -6,6 +6,9 @@ import time
 from typing import Any, Mapping
 
 
+MAX_CENTER_FREQUENCY_HZ = 999_999_999_999
+
+
 class SampleFormat(str, Enum):
     CS16 = "ci16_le"
     CF32 = "cf32_le"
@@ -77,7 +80,7 @@ class RadioConfig:
     revision: int = 1
 
     def validate(self) -> None:
-        if not 1_000 <= self.center_frequency_hz <= 2_000_000_000:
+        if not 1_000 <= self.center_frequency_hz <= MAX_CENTER_FREQUENCY_HZ:
             raise ValueError("center_frequency_hz out of supported bridge range")
         if not 1 <= self.sample_rate_sps <= 20_000_000:
             raise ValueError("sample_rate_sps out of supported bridge range")

@@ -114,7 +114,41 @@ _ROOT = _soapy_root()
 _BIN = _ROOT / "bin"
 _SDRPLAY_API = Path(r"C:\Program Files\SDRplay\API\x64")
 os.environ["SOAPY_SDR_ROOT"] = str(_ROOT)
-path_parts = [str(_BIN)]
+
+# Hardware modules remain ABI-isolated in SDRbridge's private modules0.8
+# directory, but some of them depend on their vendor runtime DLLs.  Those DLLs
+# may come from PothosSDR or from an explicitly configured vendor SDK folder.
+# Adding only the DLL directory (never Pothos' modules0.8 directory) preserves
+# the private Soapy registry and does not alter the installation used by
+# ANTRACK or another application.
+_vendor_runtime_dirs: list[Path] = []
+for _entry in os.environ.get("SDRBRIDGE_VENDOR_RUNTIME_PATH", "").split(os.pathsep):
+    if _entry:
+        _vendor_runtime_dirs.append(Path(_entry))
+for _candidate in (Path(r"C:\Program Files\PothosSDR\bin"), Path(r"C:\PothosSDR\bin")):
+    if _candidate.exists() and _candidate.resolve() != _BIN.resolve():
+        _vendor_runtime_dirs.append(_candidate)
+_vendor_runtime_dirs = list(dict.fromkeys(_vendor_runtime_dirs))
+
+# A private, ABI-specific extension directory lets SDRbridge accept any Soapy
+# module compiled against its selected core without replacing the Pothos/Soapy
+# installation used by ANTRACK or another radio application. Never add the
+# system ``modules0.8`` directory to SDRbridge's private runtime.
+_module_roots = sorted((_ROOT / "lib" / "SoapySDR").glob("modules*"))
+_module_dir_name = _module_roots[-1].name if _module_roots else "modules0.8"
+_local_app_data = os.environ.get("LOCALAPPDATA")
+_user_plugin_dir = (
+    Path(_local_app_data) / "SDRbridge" / "SoapySDR" / _module_dir_name
+    if _local_app_data else None
+)
+if _user_plugin_dir is not None:
+    _user_plugin_dir.mkdir(parents=True, exist_ok=True)
+    _existing_plugin_path = [
+        item for item in os.environ.get("SOAPY_SDR_PLUGIN_PATH", "").split(os.pathsep) if item
+    ]
+    _plugin_paths = [str(_user_plugin_dir), *_existing_plugin_path]
+    os.environ["SOAPY_SDR_PLUGIN_PATH"] = os.pathsep.join(dict.fromkeys(_plugin_paths))
+path_parts = [str(_BIN), *(str(item) for item in _vendor_runtime_dirs if item.exists())]
 if (_SDRPLAY_API / "sdrplay_api.dll").exists():
     path_parts.insert(0, str(_SDRPLAY_API))
 os.environ["PATH"] = ";".join(path_parts + [os.environ.get("PATH", "")])
@@ -122,6 +156,9 @@ if hasattr(os, "add_dll_directory"):
     if (_SDRPLAY_API / "sdrplay_api.dll").exists():
         os.add_dll_directory(str(_SDRPLAY_API))
     os.add_dll_directory(str(_BIN))
+    for _vendor_runtime_dir in _vendor_runtime_dirs:
+        if _vendor_runtime_dir.exists():
+            os.add_dll_directory(str(_vendor_runtime_dir))
 
 if (_SDRPLAY_API / "sdrplay_api.dll").exists():
     # PothosSDR ships an older SDRplay API DLL. Loading the installed SDRplay
@@ -159,7 +196,10 @@ _lib.SoapySDRStrings_clear.argtypes = [ctypes.POINTER(ctypes.POINTER(ctypes.c_ch
 _lib.SoapySDR_free.argtypes = [ctypes.c_void_p]
 _lib.SoapySDR_listModules.argtypes = [ctypes.POINTER(ctypes.c_size_t)]
 _lib.SoapySDR_listModules.restype = ctypes.POINTER(ctypes.c_char_p)
+_lib.SoapySDR_listSearchPaths.argtypes = [ctypes.POINTER(ctypes.c_size_t)]
+_lib.SoapySDR_listSearchPaths.restype = ctypes.POINTER(ctypes.c_char_p)
 _lib.SoapySDR_loadModules.argtypes = []
+_lib.SoapySDR_loadModules.restype = None
 
 _lib.SoapySDRDevice_listAntennas.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
 _lib.SoapySDRDevice_listAntennas.restype = ctypes.POINTER(ctypes.c_char_p)
@@ -249,6 +289,26 @@ def listModules() -> list[str]:
         holder = ctypes.pointer(result)
         _lib.SoapySDRStrings_clear(holder, length.value)
     return values
+
+
+def listSearchPaths() -> list[str]:
+    length = ctypes.c_size_t()
+    result = _lib.SoapySDR_listSearchPaths(ctypes.byref(length))
+    values = [_decode(result[index]) for index in range(length.value)] if result else []
+    if result:
+        holder = ctypes.pointer(result)
+        _lib.SoapySDRStrings_clear(holder, length.value)
+    return values
+
+
+def getRuntimeInfo() -> dict[str, Any]:
+    return {
+        "root": str(_ROOT),
+        "abi": getABIVersion(),
+        "modules": listModules(),
+        "search_paths": listSearchPaths(),
+        "user_plugin_path": str(_user_plugin_dir) if _user_plugin_dir is not None else None,
+    }
 
 
 def Device_enumerate(args: dict[str, Any] | None = None) -> list[dict[str, str]]:

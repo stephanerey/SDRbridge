@@ -3,7 +3,7 @@ $project = Split-Path -Parent $PSScriptRoot
 $python = Join-Path $project '.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $python)) { throw 'Environnement .venv absent.' }
 $version = (& $python -c "import sys,tomllib,pathlib; print(tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))['project']['version'])" (Join-Path $project 'pyproject.toml') | Select-Object -Last 1).Trim()
-if ($version -notmatch '^(\d+)\.(\d+)\.(\d+)$') { throw "Version projet invalide: $version" }
+if ($version -notmatch '^(\d+)\.(\d+)\.(\d+)(?:\.dev\d+)?$') { throw "Version projet invalide: $version" }
 $releaseSeries = "$($Matches[1]).$($Matches[2])"
 $release = Join-Path $project "release-v$releaseSeries"
 $work = Join-Path $project 'build-final'
@@ -32,8 +32,11 @@ $notices = Join-Path $project 'THIRD_PARTY_NOTICES.md'
 $appIcon = Join-Path $project 'assets\branding\sdrbridge.ico'
 $soapyRuntime = Join-Path $project 'build-final\dependencies\soapy-runtime'
 $soapyDll = Join-Path $soapyRuntime 'bin\SoapySDR.dll'
-$soapySdrplay = Join-Path $soapyRuntime 'lib\SoapySDR\modules0.9\sdrPlaySupport.dll'
-if (-not (Test-Path -LiteralPath $soapyDll) -or -not (Test-Path -LiteralPath $soapySdrplay)) { throw 'Runtime Soapy privé incomplet.' }
+$soapyModuleDir = Get-ChildItem -LiteralPath (Join-Path $soapyRuntime 'lib\SoapySDR') -Directory -Filter 'modules*' -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+if (-not $soapyModuleDir) { throw 'Répertoire de modules Soapy privé absent.' }
+$soapyModuleDirName = $soapyModuleDir.Name
+$soapyModules = @(Get-ChildItem -LiteralPath $soapyModuleDir -File -Filter '*.dll' -ErrorAction SilentlyContinue)
+if (-not (Test-Path -LiteralPath $soapyDll) -or -not ($soapyModules.Name -contains 'sdrPlaySupport.dll')) { throw 'Runtime Soapy privé incomplet.' }
 if (-not (Test-Path -LiteralPath $appIcon)) { throw 'Icône SDRbridge absente.' }
 $common = @(
     '--noconfirm','--clean','--paths',(Join-Path $project 'src'),
@@ -42,7 +45,6 @@ $common = @(
 )
 $serverResources = @(
     '--add-binary',"$soapyDll;soapy_runtime\bin",
-    '--add-binary',"$soapySdrplay;soapy_runtime\lib\SoapySDR\modules0.9",
     '--add-data',"$soapyCompat;soapy_compat",
     '--add-data',"$helpFr;docs",
     '--add-data',"$helpEn;docs",
@@ -50,6 +52,12 @@ $serverResources = @(
     '--add-data',"$notices;legal",
     '--add-data',"$appIcon;assets\branding"
 )
+foreach ($soapyModule in $soapyModules) {
+    # Package every ABI-compatible module produced by the private runtime
+    # build. Driver additions no longer require another hard-coded PyInstaller
+    # entry, while the separate modules0.8 installed by Pothos remain isolated.
+    $serverResources += @('--add-binary',"$($soapyModule.FullName);soapy_runtime\lib\SoapySDR\$soapyModuleDirName")
+}
 & $python -m PyInstaller @common @serverResources --windowed --icon $appIcon --name SDR_Bridge --distpath $release --workpath (Join-Path $work 'server') --specpath $work --add-binary "$sdrplay;native" (Join-Path $project 'launcher.py')
 if ($LASTEXITCODE -ne 0) { throw 'Build SDR_Bridge impossible.' }
 # PyQt 5.15.2 fournit un runtime MSVC 14.26 dans son sous-dossier Qt. Le
@@ -115,10 +123,28 @@ Copy-Item -LiteralPath $helpFr,$helpEn,$license,$notices,(Join-Path $project 'AU
 New-Item -ItemType Directory -Force (Join-Path $release 'licenses') | Out-Null
 Copy-Item -LiteralPath (Join-Path $project 'build-final\dependencies\src\SoapySDR\LICENSE_1_0.txt') -Destination (Join-Path $release 'licenses\SoapySDR-BSL-1.0.txt') -Force
 Copy-Item -LiteralPath (Join-Path $project 'build-final\dependencies\src\SoapySDRPlay3\LICENSE.txt') -Destination (Join-Path $release 'licenses\SoapySDRPlay3-MIT.txt') -Force
+Copy-Item -LiteralPath (Join-Path $project 'build-final\dependencies\src\SoapyRTLSDR\LICENSE.txt') -Destination (Join-Path $release 'licenses\SoapyRTLSDR-MIT.txt') -Force
+Copy-Item -LiteralPath (Join-Path $project 'build-final\dependencies\src\SoapyAirspy\LICENSE.txt') -Destination (Join-Path $release 'licenses\SoapyAirspy-MIT.txt') -Force
+Copy-Item -LiteralPath (Join-Path $project 'build-final\dependencies\src\SoapyAirspyHF\LICENSE.txt') -Destination (Join-Path $release 'licenses\SoapyAirspyHF-MIT.txt') -Force
+Copy-Item -LiteralPath (Join-Path $project 'build-final\dependencies\src\LimeSuite\COPYING') -Destination (Join-Path $release 'licenses\LimeSuite-Apache-2.0.txt') -Force
+Copy-Item -LiteralPath (Join-Path $project 'build-final\dependencies\src\SoapyPlutoSDR\LICENSE') -Destination (Join-Path $release 'licenses\SoapyPlutoSDR-LGPL-2.1.txt') -Force
+Copy-Item -LiteralPath (Join-Path $project 'build-final\dependencies\src\SoapyUHD\COPYING') -Destination (Join-Path $release 'licenses\SoapyUHD-GPL-3.0.txt') -Force
+Copy-Item -LiteralPath (Join-Path $project 'build-final\dependencies\boost_1_75_0\LICENSE_1_0.txt') -Destination (Join-Path $release 'licenses\Boost-BSL-1.0.txt') -Force
+Copy-Item -LiteralPath (Join-Path $project 'packaging\licenses\Airspy-BSD-3-Clause.txt') -Destination (Join-Path $release 'licenses\Airspy-BSD-3-Clause.txt') -Force
+Copy-Item -LiteralPath 'C:\Program Files\PothosSDR\licenses\airspyhf\LICENSE' -Destination (Join-Path $release 'licenses\AirspyHF-BSD-3-Clause.txt') -Force
+Copy-Item -LiteralPath 'C:\Program Files\PothosSDR\licenses\rtl-sdr\COPYING' -Destination (Join-Path $release 'licenses\RTL-SDR-GPL-2.0.txt') -Force
+Copy-Item -LiteralPath 'C:\Program Files\PothosSDR\licenses\libusb\COPYING' -Destination (Join-Path $release 'licenses\libusb-LGPL-2.1.txt') -Force
+Copy-Item -LiteralPath 'C:\Program Files\PothosSDR\licenses\libiio\COPYING.txt' -Destination (Join-Path $release 'licenses\libiio-LGPL-2.1.txt') -Force
+Copy-Item -LiteralPath 'C:\Program Files\PothosSDR\licenses\libad9361\LICENSE' -Destination (Join-Path $release 'licenses\libad9361-LGPL-2.1.txt') -Force
+Copy-Item -LiteralPath 'C:\Program Files\PothosSDR\licenses\LimeSuite\COPYING' -Destination (Join-Path $release 'licenses\LimeSuite-Apache-2.0-runtime.txt') -Force
+Copy-Item -LiteralPath 'C:\Program Files\PothosSDR\licenses\uhd\LICENSE' -Destination (Join-Path $release 'licenses\UHD-GPL-3.0-or-later.txt') -Force
+Copy-Item -LiteralPath 'C:\Program Files\PothosSDR\licenses\Pthreads\COPYING.LIB' -Destination (Join-Path $release 'licenses\pthreads-win32-LGPL-2.1.txt') -Force
 Copy-Item -LiteralPath (Join-Path $project '.venv\Lib\site-packages\PyQt5_Qt5-5.15.2.dist-info\LICENSE') -Destination (Join-Path $release 'licenses\Qt-5.15.2.txt') -Force
 $redistNotice = Get-ChildItem 'C:\Program Files (x86)\Microsoft Visual Studio\*\BuildTools\Licenses\*\Redist.txt' -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($redistNotice) { Copy-Item -LiteralPath $redistNotice.FullName -Destination (Join-Path $release 'licenses\Microsoft-Visual-Cpp-Runtime.txt') -Force }
-Copy-Item -LiteralPath (Join-Path $project 'config.soapy-sdrpp.json') -Destination $release -Force
+$defaultSoapyConfig = Join-Path $project 'packaging\defaults\config.soapy-sdrpp.json'
+if (-not (Test-Path -LiteralPath $defaultSoapyConfig)) { throw 'Configuration Soapy par défaut absente.' }
+Copy-Item -LiteralPath $defaultSoapyConfig -Destination (Join-Path $release 'config.soapy-sdrpp.json') -Force
 Copy-Item -LiteralPath (Join-Path $project 'config.native-sdrpp.json') -Destination $release -Force
 Copy-Item -LiteralPath (Join-Path $project 'start-sdrbridge.ps1') -Destination $release -Force
 $exe = Join-Path $release 'SDR_Bridge\SDR_Bridge.exe'

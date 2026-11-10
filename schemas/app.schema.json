@@ -13,7 +13,7 @@
       "required": ["path", "center_frequency_hz", "loop"],
       "properties": {
         "path": {"type": ["string", "null"]},
-        "center_frequency_hz": {"type": ["integer", "null"], "minimum": 1000, "maximum": 2000000000},
+        "center_frequency_hz": {"type": ["integer", "null"], "minimum": 1000, "maximum": 999999999999},
         "loop": {"type": "boolean"}
       },
       "additionalProperties": false
@@ -22,7 +22,7 @@
       "type": "object",
       "required": ["center_frequency_hz", "sample_rate_sps", "bandwidth_hz", "gain_reduction_db", "agc_enabled"],
       "properties": {
-        "center_frequency_hz": {"type": "integer", "minimum": 1000, "maximum": 2000000000},
+        "center_frequency_hz": {"type": "integer", "minimum": 1000, "maximum": 999999999999},
         "sample_rate_sps": {"type": "integer", "minimum": 1, "maximum": 20000000},
         "bandwidth_hz": {"type": "integer", "minimum": 1, "maximum": 20000000},
         "gain_reduction_db": {"type": "integer", "minimum": 0, "maximum": 100},

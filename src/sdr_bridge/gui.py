@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import logging
 import os
 from pathlib import Path
 import sys
@@ -18,10 +19,13 @@ from . import __version__
 from .dsp import payload_to_complex
 from .diagnostics import export_diagnostic_bundle
 from .frequency_control import FrequencyControlWidget
-from .gui_theme import DARK_STYLESHEET
-from .model import LifecycleState
+from .gui_theme import DARK_STYLESHEET, SDRBridgeProxyStyle
+from .model import MAX_CENTER_FREQUENCY_HZ, LifecycleState
 from .recording import CaptureFormat
 from .rf_profiles import RFProfileSet, RFRule
+
+
+logger = logging.getLogger(__name__)
 
 
 TEXT = {
@@ -1159,8 +1163,12 @@ class BridgeWindow(QtWidgets.QMainWindow):
 
     def _set_hardware_controls_enabled(self, enabled: bool) -> None:
         self.frequency_control.set_editable(enabled)
-        self.rate_combo.setEnabled(enabled)
-        self.bandwidth_combo.setEnabled(enabled)
+        self.rate_combo.setEnabled(enabled and bool(
+            self._capabilities.get("sample_rates_sps") or self._capabilities.get("sample_rate_ranges_sps")
+        ))
+        self.bandwidth_combo.setEnabled(enabled and bool(
+            self._capabilities.get("bandwidths_hz") or self._capabilities.get("bandwidth_ranges_hz")
+        ))
         self.antenna_combo.setEnabled(enabled and self.antenna_combo.count() > 0)
         self.if_gain_slider.setEnabled(enabled and self._primary_gain_names[0] is not None)
         self.rf_gain_slider.setEnabled(enabled and self._primary_gain_names[1] is not None)
@@ -1206,6 +1214,19 @@ class BridgeWindow(QtWidgets.QMainWindow):
             else:
                 devices = self.bridge.enumerate_devices()
             current = self.bridge.device_id
+            # A discovery-only configuration intentionally stores no device
+            # identifier. The combo nevertheless displayed its first item
+            # while the bridge still had no effective source selected, which
+            # left all capability controls blank and made Play ineffective.
+            # Claim the first deterministically sorted RX device while stopped.
+            if current is None and devices:
+                first_device_id = devices[0].get("device_id")
+                if first_device_id:
+                    if self.runtime is not None and hasattr(self.runtime, "select_source_device"):
+                        self.runtime.select_source_device(str(first_device_id))
+                    else:
+                        self.bridge.select_device(str(first_device_id))
+                    current = self.bridge.device_id
             self.device_combo.blockSignals(True)
             self.device_combo.clear()
             for device in devices:
@@ -1223,6 +1244,14 @@ class BridgeWindow(QtWidgets.QMainWindow):
                 capabilities = self.bridge.capabilities(current)
                 self._capabilities = capabilities
                 self._capability_refresh_attempts = 3
+                frequency_ranges = capabilities.get("frequency_ranges_hz", ())
+                if frequency_ranges:
+                    self.frequency_control.set_range_hz(
+                        min(int(item[0]) for item in frequency_ranges),
+                        max(int(item[1]) for item in frequency_ranges),
+                    )
+                else:
+                    self.frequency_control.set_range_hz(1_000, MAX_CENTER_FREQUENCY_HZ)
                 used_primary_gains = self._configure_primary_gains(capabilities)
                 self.agc_check.setEnabled(bool(capabilities.get("agc_available", False)))
                 rate_values = capabilities.get("sample_rates_sps", ()) or (self.bridge.config.sample_rate_sps,)
@@ -1297,6 +1326,10 @@ class BridgeWindow(QtWidgets.QMainWindow):
             # early capability query can race the first SDRplay device claim;
             # clearing the selector here hid a perfectly operational source.
             self._capabilities = {}
+            logger.exception(
+                "hardware capability refresh failed",
+                extra={"code": "GUI_HARDWARE_CAPABILITY_REFRESH_FAILED"},
+            )
             if self.device_combo.count() == 0:
                 self.device_combo.addItem(self._t("discovery_unavailable").format(error=exc))
             self._show_error(self._t("hardware_controls_unavailable").format(error=exc))
@@ -2362,7 +2395,7 @@ def prepare_gui() -> QtWidgets.QApplication:
     icon_path = resource_root / "assets" / "branding" / "sdrbridge.ico"
     if icon_path.is_file():
         application.setWindowIcon(QtGui.QIcon(str(icon_path)))
-    application.setStyle("Fusion")
+    application.setStyle(SDRBridgeProxyStyle())
     return application
 
 

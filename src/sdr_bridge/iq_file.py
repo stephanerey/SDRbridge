@@ -13,6 +13,7 @@ from .model import (
     DeviceCapabilities,
     DeviceDescriptor,
     Discontinuity,
+    MAX_CENTER_FREQUENCY_HZ,
     RadioConfig,
     SampleFormat,
     TimeDomain,
@@ -101,7 +102,7 @@ def inspect_iq_wav(path: str | Path) -> WAVIQInfo:
                 body = stream.read(min(chunk_size, 36))
                 if len(body) >= 36:
                     candidate = struct.unpack_from("<I", body, 32)[0]
-                    if 1_000 <= candidate <= 2_000_000_000:
+                    if 1_000 <= candidate <= MAX_CENTER_FREQUENCY_HZ:
                         auxi_center_frequency_hz = candidate
             elif chunk_id == b"data":
                 data_offset = chunk_start
