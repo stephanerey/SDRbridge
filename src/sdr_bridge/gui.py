@@ -2314,8 +2314,19 @@ class BridgeWindow(QtWidgets.QMainWindow):
 
 def prepare_gui() -> QtWidgets.QApplication:
     """Load the bundled Qt runtime before a backend can alter DLL search paths."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("SDRbridge.SDRbridge")
+        except (AttributeError, OSError):
+            pass
     application = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     application.setApplicationName("SDRbridge")
+    resource_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+    icon_path = resource_root / "assets" / "branding" / "sdrbridge.ico"
+    if icon_path.is_file():
+        application.setWindowIcon(QtGui.QIcon(str(icon_path)))
     application.setStyle("Fusion")
     return application
 

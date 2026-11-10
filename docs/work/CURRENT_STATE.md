@@ -1,4 +1,4 @@
-# État réel — SDRbridge 0.6.0 publiée — 10 novembre 2026
+# État réel — SDRbridge 0.6.1 publiée — 10 novembre 2026
 
 ## Implémenté
 
@@ -9,6 +9,7 @@
 - Inventaire réel : RSPdx `2001077942`, clone RSP1 `0000000001` et backend MSi2500 ; les périphériques audio Pothos sont exclus.
 - Instances nommées : configuration, logs et rings isolés ; `--port-offset` décale les ports de contrôle et UDP ; `--device-id` sélectionne explicitement le récepteur.
 - Interface Qt 0.6.0 affichant la source effective, le nom de l'instance et les paramètres de chaque destination UDP.
+- Icône SDRbridge dédiée, lisible de 16×16 à 256×256, appliquée à l'exécutable, aux fenêtres Qt, à la barre des tâches, aux raccourcis et à l'installeur ; l'identifiant d'application Windows stabilise aussi l'icône épinglée.
 - Paquet portable et installateur construits à partir de la version de `pyproject.toml`, avec aide, licences et connecteurs inclus.
 - Transport QMAP 0.6/Linrad UDP RX : resampling mutualisé 96 kS/s, trames fixes 1416 octets, fréquence centrale et convention spectrale QMAP ; coexistence configurée avec SDR++.
 - Distribution 0.6.0 construite sous `release-v0.6` avec Inno Setup 6.7.3.
@@ -58,6 +59,7 @@
 - 87/87 tests applicatifs verts après réorganisation Radio, alignement Spectrum/Waterfall et métrique CPU processus. Validation visuelle native à 2 MS/s avec trois consommateurs : graduations fréquentielles superposées, environ 0,72 à 1,23 cœur utilisé selon l’activité de rendu, zéro perte.
 - 88/88 tests applicatifs verts après ajout de la reprise sur débordement Soapy. Une qualification RSP1A prolongée à 10 MS/s avec sorties SDR++ 2 MS/s et QMAP 96 kS/s a tenu environ dix minutes à 10,064 MS/s, zéro perte et environ 2,22 cœurs logiques utilisés ; Stop/Play et fichier HDSDR vers RSP1A ont aussi repris correctement.
 - 90/90 tests applicatifs verts après ajout de l'export diagnostic, de la pile de livraison et du pipeline DSP en cascade multicœur. Qualification RSP1A réelle de 60 s avec le runtime privé SoapySDR 0.9 / SoapySDRPlay3 0.5.2, source 10 MS/s, sortie SDBU 4 MS/s et QMAP 96 kS/s : 10,064 MS/s mesurés, zéro perte source, zéro drop DSP/profil et zéro erreur.
+- 91/91 tests applicatifs verts en 0.6.1, dont le chargement de l'icône Qt globale. L'icône extraite de l'exécutable et de l'installeur correspond au master multi-résolution ; installation isolée, lancement `--version` et désinstallation terminent avec le code 0.
 - Distribution portable et installateur 0.6.0 finaux construits. Installation silencieuse dans un dossier isolé, chargement du runtime Soapy privé et désinstallation réussis avec les codes 0 ; aucune copie de `sdrplay_api.dll` n'est redistribuée. SHA-256 de l'installateur final : `82DF0435C88B200D3E59A654EDA3A936F075921C2BC18F7CDE068B51F24310F7`.
 - HDSDR 2.81a installé sur la session réelle avec le dernier build Win32 `ExtIO_SDR_Bridge.dll` : chargement automatique, ring local actif, 2 MS/s affichés et spectrum/waterfall alimentés. La connexion observée est `127.0.0.1:<port éphémère> → 127.0.0.1:47631`; aucun endpoint UDP `7356` n’est utilisé.
 - SDRuno final 1.42.1710 installé depuis le paquet officiel signé SDRPLAY LIMITED sans modifier l’API 3.15 existante. `SDRuno.EXTIO.exe` charge la même DLL Win32 depuis son dossier programme, affiche `In SR: 2000000`, passe de PLAY à STOP, alimente SP1 et ouvre une seconde connexion locale indépendante vers `127.0.0.1:47631` simultanément avec HDSDR.
@@ -75,11 +77,11 @@
 
 - Les anciennes réserves Pothos/SDRplay 3.07 sont levées pour SDRbridge : la distribution embarque un ensemble cohérent SoapySDR 0.9 + SoapySDRPlay3 0.5.2, construit proprement contre l'API SDRplay 3.15. Cette pile reste privée à l'application.
 - Aucune clé RTL2832 réelle ni USRP B100 n'a encore été qualifié. Leur compatibilité dépend du module Soapy correspondant (`rtlsdr` ou `uhd`).
-- L'installateur 0.6.0 n'est pas signé ; Windows peut afficher un avertissement SmartScreen.
+- L'installateur 0.6.1 n'est pas signé ; Windows peut afficher un avertissement SmartScreen.
 - Le gate historique d'endurance reste ouvert : le run simulé final de 10 minutes a produit des drops tardifs, donc le run 60 minutes n'a pas été lancé.
 - La source fichier 0.6.0 est validée sur trois enregistrements HDSDR réels int16 à 2 MS/s et sur des vecteurs SDR++ générés ; un enregistrement SDR++ réel reste à rejouer avant publication.
 - Les writers WAV suivent les contrats binaires HDSDR/SpectraVue et SDR++ et sont relus par SDRbridge ; leur lecture dans les applications tierces elles-mêmes reste à qualifier. Le RIFF/WAV classique est limité à 4 Gio.
-- L'installateur 0.6.0 n'est pas signé numériquement ; SmartScreen peut donc avertir l'utilisateur.
+- L'installateur 0.6.1 n'est pas signé numériquement ; SmartScreen peut donc avertir l'utilisateur.
 - La refonte v0.7 et la cohérence linguistique sont validées hors écran ; la recette native Windows/DPI reste à faire avant gel graphique.
 
 ## Reprise

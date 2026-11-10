@@ -29,10 +29,12 @@ $helpFr = Join-Path $project 'docs\HELP_FR.md'
 $helpEn = Join-Path $project 'docs\HELP_EN.md'
 $license = Join-Path $project 'LICENSE'
 $notices = Join-Path $project 'THIRD_PARTY_NOTICES.md'
+$appIcon = Join-Path $project 'assets\branding\sdrbridge.ico'
 $soapyRuntime = Join-Path $project 'build-final\dependencies\soapy-runtime'
 $soapyDll = Join-Path $soapyRuntime 'bin\SoapySDR.dll'
 $soapySdrplay = Join-Path $soapyRuntime 'lib\SoapySDR\modules0.9\sdrPlaySupport.dll'
 if (-not (Test-Path -LiteralPath $soapyDll) -or -not (Test-Path -LiteralPath $soapySdrplay)) { throw 'Runtime Soapy privé incomplet.' }
+if (-not (Test-Path -LiteralPath $appIcon)) { throw 'Icône SDRbridge absente.' }
 $common = @(
     '--noconfirm','--clean','--paths',(Join-Path $project 'src'),
     '--add-binary',"$atomic;native",
@@ -45,9 +47,10 @@ $serverResources = @(
     '--add-data',"$helpFr;docs",
     '--add-data',"$helpEn;docs",
     '--add-data',"$license;legal",
-    '--add-data',"$notices;legal"
+    '--add-data',"$notices;legal",
+    '--add-data',"$appIcon;assets\branding"
 )
-& $python -m PyInstaller @common @serverResources --windowed --name SDR_Bridge --distpath $release --workpath (Join-Path $work 'server') --specpath $work --add-binary "$sdrplay;native" (Join-Path $project 'launcher.py')
+& $python -m PyInstaller @common @serverResources --windowed --icon $appIcon --name SDR_Bridge --distpath $release --workpath (Join-Path $work 'server') --specpath $work --add-binary "$sdrplay;native" (Join-Path $project 'launcher.py')
 if ($LASTEXITCODE -ne 0) { throw 'Build SDR_Bridge impossible.' }
 # PyQt 5.15.2 fournit un runtime MSVC 14.26 dans son sous-dossier Qt. Le
 # runtime Soapy est compilé avec le toolset courant (14.51) et peut crasher si

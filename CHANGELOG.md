@@ -1,5 +1,11 @@
 # Historique des versions
 
+## 0.6.1 — publiée le 10 novembre 2026
+
+- nouvelle icône SDRbridge conçue pour rester lisible de 16×16 à 256×256 ;
+- icône intégrée à l'exécutable, aux fenêtres Qt, à la barre des tâches, au raccourci Bureau et à l'installeur Windows ;
+- identifiant d'application Windows explicite afin de conserver l'icône correcte lors de l'épinglage dans la barre des tâches.
+
 ## 0.6.0 — publiée le 10 novembre 2026
 
 - source fichier IQ WAV/RF64 pour les enregistrements HDSDR et SDR++, en stéréo I/Q `uint8`, `int16`, `int32` ou `float32` ;

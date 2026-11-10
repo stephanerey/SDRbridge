@@ -20,6 +20,7 @@ SolidCompression=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
+SetupIconFile=..\assets\branding\sdrbridge.ico
 UninstallDisplayIcon={app}\SDR_Bridge\{#MyAppExeName}
 LicenseFile=..\LICENSE
 InfoBeforeFile=..\docs\HELP_FR.md

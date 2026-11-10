@@ -2,9 +2,11 @@
 
 # SDRbridge
 
+<img src="assets/branding/sdrbridge-icon-master.png" alt="Icône SDRbridge" width="128">
+
 SDRbridge est un répartiteur RX pour Windows : il ouvre une seule source SDR, publie son flux IQ et permet à plusieurs applications de réception de l’utiliser simultanément sans leur donner le contrôle du matériel.
 
-La version 0.6.0 prend en charge une source simulée, le replay SigMF, les fichiers IQ WAV/RF64 de HDSDR ou SDR++, le backend natif SDRplay et un backend générique SoapySDR. Chaque destination UDP peut recevoir son propre débit effectif. QMAP 0.6 conserve son flux Linrad dédié à 96 kS/s, simultanément avec SDR++.
+La version 0.6.1 prend en charge une source simulée, le replay SigMF, les fichiers IQ WAV/RF64 de HDSDR ou SDR++, le backend natif SDRplay et un backend générique SoapySDR. Chaque destination UDP peut recevoir son propre débit effectif. QMAP 0.6 conserve son flux Linrad dédié à 96 kS/s, simultanément avec SDR++.
 
 ![HDSDR, SDRuno, SDR++, QMAP et SDRbridge partageant le même flux RX](docs/assets/sdrbridge-06-full-stack.png)
 
@@ -44,7 +46,7 @@ Les applications clientes sont en lecture seule. Changer une fréquence dans SDR
 | RTL2832 / RTL-SDR | backend SoapySDR avec `SoapyRTLSDR` | implémenté dans le code, non testé avec une clé réelle |
 | Airspy, HackRF, LimeSDR, UHD, etc. | module SoapySDR correspondant | compatibilité potentielle, non qualifiée |
 
-L'installateur 0.6.0 embarque uniquement le module matériel
+L'installateur 0.6.1 embarque uniquement le module matériel
 `SoapySDRPlay3`. Il prend donc en charge les SDRplay immédiatement, mais pas les
 RTL-SDR, USRP/UHD, Airspy, HackRF ou LimeSDR sans ajout et qualification du
 module Soapy correspondant dans le runtime privé de SDRbridge. La pile
@@ -58,7 +60,7 @@ Sur la machine de développement, PothosSDR expose bien la factory `rtlsdr`, mai
 
 ### Installation simple pour un utilisateur final
 
-La version courante est la **[v0.6.0](https://github.com/stephanerey/SDRbridge/releases/tag/v0.6.0)**. L'installateur `SDRbridge_Setup_0.6.0.exe` est fourni comme fichier joint à cette release GitHub.
+La version courante est la **[v0.6.1](https://github.com/stephanerey/SDRbridge/releases/tag/v0.6.1)**. L'installateur `SDRbridge_Setup_0.6.1.exe` est fourni comme fichier joint à cette release GitHub.
 
 ## Licence
 
@@ -73,7 +75,7 @@ numéro de version.
 
 **`SDR_Bridge.exe` ne doit pas être copié seul.** Le build actuel est une application portable « en dossier » : l’exécutable dépend des DLL et du répertoire `_internal` placés à côté de lui. Deux distributions sont donc possibles :
 
-- recommandée : le fichier unique `SDRbridge_Setup_0.6.0.exe` après publication de la release ;
+- recommandée : le fichier unique `SDRbridge_Setup_0.6.1.exe` après publication de la release ;
 - portable : une archive ZIP contenant le dossier `SDR_Bridge` complet, à extraire sans déplacer l’exécutable hors de ce dossier.
 
 Pour utiliser un RSP, le pilote et l’API SDRplay officiels **3.15** doivent être installés sur le PC. Python, Qt, SoapySDR et SoapySDRPlay3 sont inclus dans SDRbridge : PothosSDR n'est pas requis. Les connecteurs SDR++ et HDSDR s’installent ensuite avec les procédures dédiées plus bas.
@@ -113,7 +115,7 @@ Le script lit la version dans `pyproject.toml`, construit la pile Soapy privée,
 - `release-v0.6\SDR_Bridge\SDR_Bridge.exe` : application portable ;
 - `release-v0.6\SDR_Bridge_Client` et `SDR_Bridge_Native_Client` : clients de diagnostic ;
 - `release-v0.6\Connectors` : connecteurs SDR++, HDSDR et ANTRACK, avec leurs scripts d’installation ;
-- `release-v0.6\installer\SDRbridge_Setup_0.6.0.exe` : installateur créé si Inno Setup 6 est présent.
+- `release-v0.6\installer\SDRbridge_Setup_0.6.1.exe` : installateur créé si Inno Setup 6 est présent.
 
 L’application est installée dans le profil utilisateur (`%LOCALAPPDATA%\Programs\SDRbridge`) et ne demande pas de droits administrateur. Pour une distribution portable, copier ou compresser **tout** le dossier `release-v0.6\SDR_Bridge`.
 

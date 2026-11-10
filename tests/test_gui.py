@@ -12,7 +12,7 @@ import numpy as np
 from PyQt5 import QtTest, QtWidgets
 
 from sdr_bridge.bridge import SDRBridge
-from sdr_bridge.gui import AbsoluteFrequencyAxis, BridgeWindow, SpectrumService
+from sdr_bridge.gui import AbsoluteFrequencyAxis, BridgeWindow, SpectrumService, prepare_gui
 from sdr_bridge.model import DeviceDescriptor, RadioConfig
 from sdr_bridge.native_sdrplay import NativeSDRplaySource
 from sdr_bridge.recording import CaptureFormat
@@ -30,6 +30,11 @@ class QtInterfaceTests(unittest.TestCase):
         self.window = BridgeWindow(self.bridge)
         self.window.show()
         QtTest.QTest.qWait(80)
+
+    def test_application_icon_is_loaded_for_windows_and_taskbar_surfaces(self):
+        application = prepare_gui()
+        self.assertEqual(application.applicationName(), "SDRbridge")
+        self.assertFalse(application.windowIcon().isNull())
 
     def tearDown(self):
         if not self.bridge._closed:
