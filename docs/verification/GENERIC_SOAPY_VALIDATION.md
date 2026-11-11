@@ -23,7 +23,7 @@ un module Soapy natif et maintenu.
 
 ## Préparation du PC de validation
 
-1. Avec l'installateur de validation 0.7.0.dev1, installer uniquement les
+1. Avec l'installateur de validation 0.7.0.dev2, installer uniquement les
    pilotes Windows recommandés par le fabricant. PothosSDR n'est pas requis
    pour exécuter le paquet installé ; il ne sert qu'à reconstruire les modules
    depuis les sources.
@@ -46,7 +46,7 @@ même installation UHD et définir
 prises dans une autre version UHD.
 
 La méthode recommandée sur le PC du B100 consiste à copier puis exécuter
-`SDRbridge_Setup_0.7.0.dev1.exe`. Pour reconstruire et lancer la branche depuis
+`SDRbridge_Setup_0.7.0.dev2.exe`. Pour reconstruire et lancer la branche depuis
 les sources à la place :
 
 ```powershell
@@ -63,6 +63,11 @@ Il requiert en revanche PothosSDR x64 et Visual Studio Build Tools/CMake pour
 compiler les adaptateurs privés ABI 0.8. La présence de `uhd` dans la ligne
 `Available factories` prouve uniquement le chargement logiciel ; le B100 doit
 ensuite apparaître dans la liste **Source** et réussir l'essai RX ci-dessous.
+
+Dans SDRbridge 0.7.0.dev2, le B100 est limité aux débits CS16 utilisables jusqu'à
+8 MS/s. La longue liste de bandes passantes UHD du frontend est masquée car elle
+ne représente pas la largeur IQ. Le contrôle `ADC-pga` reste exposé et doit être
+testé en observant son effet sur le niveau reçu.
 
 ## Essai à exécuter pour chaque matériel
 

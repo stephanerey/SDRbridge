@@ -6,7 +6,7 @@
 
 SDRbridge est un répartiteur RX pour Windows : il ouvre une seule source SDR, publie son flux IQ et permet à plusieurs applications de réception de l’utiliser simultanément sans leur donner le contrôle du matériel.
 
-La version de développement 0.7.0.dev1 ajoute les modules de réception SoapySDR génériques isolés aux fonctions de la version 0.6.1. Chaque destination UDP peut recevoir son propre débit effectif. QMAP 0.6 conserve son flux Linrad dédié à 96 kS/s, simultanément avec SDR++.
+La version de développement 0.7.0.dev2 ajoute les modules de réception SoapySDR génériques isolés aux fonctions de la version 0.6.1. Chaque destination UDP peut recevoir son propre débit effectif. QMAP 0.6 conserve son flux Linrad dédié à 96 kS/s, simultanément avec SDR++.
 
 ![HDSDR, SDRuno, SDR++, QMAP et SDRbridge partageant le même flux RX](docs/assets/sdrbridge-06-full-stack.png)
 
@@ -48,14 +48,13 @@ Les applications clientes sont en lecture seule. Changer une fréquence dans SDR
 | Airspy HF+ | backend SoapySDR avec `SoapyAirspyHF` | module privé ABI 0.8 chargé ; qualification matérielle à faire |
 | LimeSDR Mini | backend SoapySDR avec `SoapyLMS7` | module privé ABI 0.8 chargé ; qualification matérielle à faire |
 | ADALM-Pluto | backend SoapySDR avec `SoapyPlutoSDR` | module privé ABI 0.8 chargé ; qualification matérielle à faire |
-| Ettus USRP B100 | backend SoapySDR avec `SoapyUHD` | module privé ABI 0.8 chargé ; qualification matérielle à faire |
+| Ettus USRP B100 | backend SoapySDR avec `SoapyUHD` | détecté et RX réel établi ; qualification des contrôles/débits 0.7.0.dev2 à terminer |
 | Autres récepteurs SoapySDR | module privé ABI 0.8 correspondant | chemin RX générique implémenté ; module et matériel à qualifier |
 
-L'installateur 0.6.1 embarque uniquement le module matériel
-`SoapySDRPlay3`. Il prend donc en charge les SDRplay immédiatement, mais pas les
-RTL-SDR, USRP/UHD, Airspy, HackRF ou LimeSDR sans ajout et qualification du
-module Soapy correspondant dans le runtime privé de SDRbridge. La pile
-PothosSDR globale du PC n'est volontairement pas chargée.
+L'installateur stable 0.6.1 embarque uniquement le module matériel
+`SoapySDRPlay3`. L'installateur de validation 0.7.0.dev2 ajoute les modules
+privés isolés pour RTL-SDR, Airspy, Airspy HF+, LimeSDR, ADALM-Pluto et
+USRP/UHD. La pile PothosSDR globale du PC n'est volontairement pas chargée.
 
 La branche de développement postérieure à 0.6.1 construit maintenant des
 modules ABI 0.8 isolés pour RTL-SDR, Airspy, Airspy HF+, LimeSDR et
@@ -64,6 +63,12 @@ Soapy compatible et construit les contrôles à partir des capacités réellemen
 annoncées par le matériel. Le répertoire Pothos `modules0.8` n'est jamais
 chargé. Consultez la [procédure de qualification du matériel Soapy
 générique](docs/verification/GENERIC_SOAPY_VALIDATION.md).
+
+Pour un Ettus B100, SDRbridge utilise directement le format CS16 et propose
+donc au maximum 8 MS/s. La longue liste de bandes passantes UHD du daughterboard
+est volontairement masquée : elle décrit le frontend RF et non la largeur IQ.
+La largeur IQ suit le débit sélectionné et le contrôle `ADC-pga` est écrit puis
+relu via UHD.
 
 Une clé RTL2832 n’est donc **pas encore qualifiée avec SDRbridge**. Elle nécessite au minimum le pilote WinUSB adapté et l'ajout du module `SoapyRTLSDR` compatible avec le runtime privé. Le périphérique doit ensuite apparaître dans la liste de la page **Radio**.
 

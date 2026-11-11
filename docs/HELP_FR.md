@@ -43,6 +43,9 @@ SDRbridge.
 - **Débit d'échantillonnage** : largeur du flux IQ produit par le SDR.
 - **Bande passante** : filtre analogique/IF réellement exposé par le matériel.
   Le mode Auto choisit la valeur disponible la plus proche du débit demandé.
+- Sur un Ettus B100, la largeur IQ suit le débit (jusqu'à 8 MS/s en CS16). La
+  bande passante du frontend annoncée par UHD n'est pas un filtre IQ réglable :
+  SDRbridge la masque volontairement. `ADC-pga` est le gain de réception disponible.
 - **IFGR/RFGR** : réductions de gain du SDRplay. Un déplacement vers la droite
   correspond visuellement à davantage de gain, même si le matériel expose une
   atténuation.

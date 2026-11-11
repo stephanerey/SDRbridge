@@ -39,6 +39,7 @@ TEXT = {
         "process_cpu_tip": "CPU used by the SDRbridge process only, shown as logical cores used / available. A plateau combined with rising losses indicates CPU saturation.",
         "receiver": "RECEIVER · HARDWARE SETTINGS", "source_sdr": "SDR source", "sampling": "Sampling rate",
         "bandwidth": "Bandwidth", "bandwidth_auto": "Auto — {value:.3f} MHz",
+        "bandwidth_unavailable": "Not adjustable by this receiver",
         "bandwidth_tip": "Hardware tuner/IF filter. Auto selects the hardware value closest to the IQ sampling rate.",
         "antenna": "Antenna", "if_gain": "IF gain", "rf_gain": "RF gain",
         "auto_rf": "Auto RF profile", "configure_rf": "Configure RF rules →", "rf_analysis": "RF ANALYSIS",
@@ -119,6 +120,7 @@ TEXT = {
         "process_cpu_tip": "CPU utilisé uniquement par le processus SDRbridge, exprimé en cœurs logiques utilisés / disponibles. Un plateau accompagné de pertes croissantes indique une saturation CPU.",
         "receiver": "RÉCEPTEUR · RÉGLAGES MATÉRIELS", "source_sdr": "Source SDR", "sampling": "Débit d'échantillonnage",
         "bandwidth": "Bande passante", "bandwidth_auto": "Auto — {value:.3f} MHz",
+        "bandwidth_unavailable": "Non réglable par ce récepteur",
         "bandwidth_tip": "Filtre matériel du tuner/IF. Auto choisit la valeur matérielle la plus proche du débit d’échantillonnage IQ.",
         "antenna": "Antenne", "if_gain": "Gain IF", "rf_gain": "Gain RF",
         "auto_rf": "Profil RF automatique", "configure_rf": "Configurer les règles RF →", "rf_analysis": "ANALYSE RF",
@@ -1349,8 +1351,18 @@ class BridgeWindow(QtWidgets.QMainWindow):
     def _refresh_bandwidth_combo(self, sample_rate_sps: int, current_bandwidth_hz: int | None = None) -> None:
         """Expose hardware filters and select the closest one in Auto mode."""
         all_bandwidths = tuple(int(value) for value in self._capabilities.get("bandwidths_hz", ()))
-        if not all_bandwidths and current_bandwidth_hz is not None:
-            all_bandwidths = (int(current_bandwidth_hz),)
+        has_hardware_bandwidth = bool(
+            all_bandwidths or self._capabilities.get("bandwidth_ranges_hz", ())
+        )
+        if not has_hardware_bandwidth:
+            effective = int(current_bandwidth_hz or sample_rate_sps)
+            self.bandwidth_combo.blockSignals(True)
+            self.bandwidth_combo.clear()
+            self.bandwidth_combo.addItem(self._t("bandwidth_unavailable"), effective)
+            self.bandwidth_combo.setCurrentIndex(0)
+            self.bandwidth_combo.blockSignals(False)
+            self.bandwidth_edit.setText(str(effective))
+            return
         all_bandwidths = tuple(sorted(set(all_bandwidths)))
         current = int(current_bandwidth_hz if current_bandwidth_hz is not None else self.bandwidth_edit.text())
         if not all_bandwidths:
@@ -2386,6 +2398,9 @@ def prepare_gui() -> QtWidgets.QApplication:
         try:
             import ctypes
 
+            # This identifier must match the installer shortcuts. Without the
+            # matching shortcut metadata Windows can fall back to a generic
+            # taskbar icon on a fresh PC even though the EXE has an icon.
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("SDRbridge.SDRbridge")
         except (AttributeError, OSError):
             pass
@@ -2402,6 +2417,7 @@ def prepare_gui() -> QtWidgets.QApplication:
 def run_gui(bridge: SDRBridge, runtime: Any | None = None) -> int:
     application = prepare_gui()
     window = BridgeWindow(bridge, runtime)
+    window.setWindowIcon(application.windowIcon())
     window.show()
     return application.exec_()
 

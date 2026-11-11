@@ -5,6 +5,7 @@ import json
 import logging
 import threading
 import time
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -40,6 +41,7 @@ class SoapySource(IQSource):
         "plutosdr": 61,
         "miri": 90,
     }
+    B100_CS16_MAX_RATE_SPS = 8_000_000
 
     def __init__(self, block_samples: int = 4096, driver: str | None = None, *, api: Any | None = None):
         self.block_samples = int(block_samples)
@@ -57,6 +59,8 @@ class SoapySource(IQSource):
         self._first_sample = 0
         self._control_lock = threading.RLock()
         self._last_raw_devices: list[dict[str, str]] = []
+        self._active_raw_device: dict[str, str] = {}
+        self._uhd_b100 = False
 
     @property
     def name(self) -> str:
@@ -128,6 +132,8 @@ class SoapySource(IQSource):
             raw = self._raw_for_id(device_id)
             self._device = self._api().Device(raw)
             self._descriptor = self._descriptor_from_raw(raw)
+            self._active_raw_device = dict(raw)
+            self._uhd_b100 = self._is_uhd_b100(raw)
 
     def capabilities(self, device_id: str) -> DeviceCapabilities:
         with self._control_lock:
@@ -135,7 +141,8 @@ class SoapySource(IQSource):
 
     def _capabilities_unlocked(self, device_id: str) -> DeviceCapabilities:
         temporary = self._device is None or self._descriptor is None or self._descriptor.device_id != device_id
-        device = self._api().Device(self._raw_for_id(device_id)) if temporary else self._device
+        raw = self._raw_for_id(device_id)
+        device = self._api().Device(raw) if temporary else self._device
         api = self._api()
         try:
             rate_ranges = self._read_ranges(device, "getSampleRateRange", api)
@@ -157,6 +164,21 @@ class SoapySource(IQSource):
             gain_names = tuple(str(value) for value in self._optional_call(
                 device, "listGains", api.SOAPY_SDR_RX, 0, default=()
             ))
+            is_uhd_b100 = self._is_uhd_b100(raw, gain_names)
+            if is_uhd_b100:
+                # UHD exposes rates that are usable only with 8-bit wire
+                # samples. SDRbridge intentionally receives CS16, for which
+                # the USB 2.0 B100 limit is 8 MS/s.
+                rates = tuple(value for value in rates if value <= self.B100_CS16_MAX_RATE_SPS)
+                if not rates:
+                    rates = (min(self._config.sample_rate_sps, self.B100_CS16_MAX_RATE_SPS),)
+                rate_ranges = tuple(
+                    (low, min(high, float(self.B100_CS16_MAX_RATE_SPS)), step)
+                    for low, high, step in rate_ranges
+                    if low <= self.B100_CS16_MAX_RATE_SPS
+                )
+                if not temporary:
+                    self._uhd_b100 = True
             for name in gain_names:
                 value_range = self._optional_call(
                     device, "getGainRange", api.SOAPY_SDR_RX, 0, name, default=None
@@ -186,6 +208,13 @@ class SoapySource(IQSource):
             }))
             if not bandwidths:
                 bandwidths = self._values_from_ranges(bandwidth_ranges, self._config.bandwidth_hz)
+            if is_uhd_b100:
+                # On the B100, UHD reports the daughterboard RF frontend
+                # bandwidth (often hundreds of MHz) as if it were a tunable
+                # baseband filter. It is not the IQ span and must not be sent
+                # back through setBandwidth().
+                bandwidths = ()
+                bandwidth_ranges = ()
             agc_available = bool(self._optional_call(
                 device, "hasGainMode", api.SOAPY_SDR_RX, 0, default=False
             ))
@@ -221,6 +250,18 @@ class SoapySource(IQSource):
             return default
 
     @staticmethod
+    def _is_uhd_b100(raw: dict[str, Any], gain_names=()) -> bool:
+        """Recognize the legacy USB B100 without relying on its display label."""
+        driver = str(raw.get("driver", "")).lower()
+        if driver != "uhd":
+            return False
+        identity = " ".join(
+            str(raw.get(key, "")).lower()
+            for key in ("type", "product", "hardware", "name", "label")
+        )
+        return "b100" in identity or any(str(name).lower() == "adc-pga" for name in gain_names)
+
+    @staticmethod
     def _read_ranges(device: Any, method_name: str, api: Any) -> tuple[tuple[float, float, float], ...]:
         values = SoapySource._optional_call(
             device, method_name, api.SOAPY_SDR_RX, 0, default=()
@@ -254,11 +295,17 @@ class SoapySource(IQSource):
         api, dev = self._api(), self._device
         if dev is None:
             raise RuntimeError("Soapy source is not open")
+        available_gains = set(str(value) for value in self._optional_call(
+            dev, "listGains", api.SOAPY_SDR_RX, 0, default=()
+        ))
+        self._uhd_b100 = self._uhd_b100 or self._is_uhd_b100(
+            self._active_raw_device, available_gains
+        )
         dev.setSampleRate(api.SOAPY_SDR_RX, 0, float(config.sample_rate_sps))
         dev.setFrequency(api.SOAPY_SDR_RX, 0, float(config.center_frequency_hz))
         bandwidths = self._optional_call(dev, "listBandwidths", api.SOAPY_SDR_RX, 0, default=())
         bandwidth_ranges = self._read_ranges(dev, "getBandwidthRange", api)
-        if (bandwidths or bandwidth_ranges) and hasattr(dev, "setBandwidth"):
+        if not self._uhd_b100 and (bandwidths or bandwidth_ranges) and hasattr(dev, "setBandwidth"):
             dev.setBandwidth(api.SOAPY_SDR_RX, 0, float(config.bandwidth_hz))
         antennas = tuple(str(value) for value in self._optional_call(
             dev, "listAntennas", api.SOAPY_SDR_RX, 0, default=()
@@ -271,9 +318,6 @@ class SoapySource(IQSource):
         if gain_mode_available:
             dev.setGainMode(api.SOAPY_SDR_RX, 0, bool(config.agc_enabled))
         if not config.agc_enabled:
-            available_gains = set(str(value) for value in self._optional_call(
-                dev, "listGains", api.SOAPY_SDR_RX, 0, default=()
-            ))
             requested_gains = dict(config.gains)
             if "IFGR" in available_gains and "IFGR" not in requested_gains:
                 requested_gains["IFGR"] = config.gain_reduction_db
@@ -289,6 +333,23 @@ class SoapySource(IQSource):
             return self._configure_unlocked(request)
 
     def _configure_unlocked(self, request: RadioConfig) -> RadioConfig:
+        if not self._uhd_b100 and self._device is not None:
+            api = self._api()
+            gain_names = self._optional_call(
+                self._device, "listGains", api.SOAPY_SDR_RX, 0, default=()
+            )
+            self._uhd_b100 = self._is_uhd_b100(self._active_raw_device, gain_names)
+        if self._uhd_b100:
+            if request.sample_rate_sps > self.B100_CS16_MAX_RATE_SPS:
+                raise ValueError("USRP B100 CS16 sample rate must not exceed 8 MS/s")
+            if not 1 <= request.bandwidth_hz <= 20_000_000:
+                # Recover configurations produced by the previous build,
+                # which copied UHD's 500 MHz frontend readback into the bridge
+                # setting and consequently rejected every later update.
+                request = replace(
+                    request,
+                    bandwidth_hz=min(request.sample_rate_sps, self.B100_CS16_MAX_RATE_SPS),
+                )
         request.validate()
         self._set_requested(request)
         dev, api = self._device, self._api()
@@ -298,7 +359,7 @@ class SoapySource(IQSource):
         rate = int(round(self._optional_call(
             dev, "getSampleRate", api.SOAPY_SDR_RX, 0, default=request.sample_rate_sps
         )))
-        bandwidth = int(round(self._optional_call(
+        bandwidth = request.bandwidth_hz if self._uhd_b100 else int(round(self._optional_call(
             dev, "getBandwidth", api.SOAPY_SDR_RX, 0, default=request.bandwidth_hz
         )))
         gain_names = tuple(str(value) for value in self._optional_call(
@@ -379,6 +440,8 @@ class SoapySource(IQSource):
         self.stop()
         self._device = None
         self._descriptor = None
+        self._active_raw_device = {}
+        self._uhd_b100 = False
 
     def _run(self) -> None:
         api = self._api()

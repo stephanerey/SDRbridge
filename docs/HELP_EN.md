@@ -40,6 +40,9 @@ stereo int16 WAV. The default Save As location is SDRbridge's `Captures` folder.
 - **Sample rate** is the width of the IQ stream produced by the SDR.
 - **Bandwidth** is the analogue/IF hardware filter exposed by the device. Auto
   chooses the available value closest to the requested sample rate.
+- On an Ettus B100, the IQ span follows the sample rate (up to 8 MS/s in CS16).
+  UHD's daughterboard frontend bandwidth is not an adjustable IQ filter, so
+  SDRbridge deliberately hides it. `ADC-pga` is the available receive gain.
 - SDRplay **IFGR/RFGR** are gain reductions. The GUI reverses their visual
   direction so moving right behaves like increasing gain.
 - **RF profiles** automatically apply antenna, gain, AGC and bandwidth by

@@ -36,6 +36,11 @@ class QtInterfaceTests(unittest.TestCase):
         application = prepare_gui()
         self.assertEqual(application.applicationName(), "SDRbridge")
         self.assertFalse(application.windowIcon().isNull())
+        installer = (Path(__file__).resolve().parents[1] / "packaging" / "SDR_Bridge.iss").read_text(
+            encoding="utf-8"
+        )
+        self.assertGreaterEqual(installer.count('AppUserModelID: "SDRbridge.SDRbridge"'), 2)
+        self.assertGreaterEqual(installer.count('IconFilename: "{app}\\SDR_Bridge\\{#MyAppExeName}"'), 2)
 
     def test_dark_controls_have_visible_unchecked_boxes_and_cyan_arrows(self):
         self.assertIn("QCheckBox::indicator:unchecked", DARK_STYLESHEET)
@@ -338,6 +343,24 @@ class QtInterfaceTests(unittest.TestCase):
             self.assertEqual(self.window.bandwidth_edit.text(), "5000000")
         finally:
             self.window._live_apply_timer.stop()
+
+    def test_receiver_without_adjustable_bandwidth_shows_one_disabled_status(self):
+        self.window._capabilities = {
+            "sample_rates_sps": (1_000_000, 2_000_000, 4_000_000, 8_000_000),
+            "bandwidths_hz": (),
+            "bandwidth_ranges_hz": (),
+        }
+        self.window._refresh_bandwidth_combo(4_000_000, 2_000_000)
+        self.window._set_hardware_controls_enabled(True)
+
+        self.assertEqual(self.window.bandwidth_combo.count(), 1)
+        self.assertEqual(self.window.bandwidth_combo.currentData(), 2_000_000)
+        self.assertEqual(
+            self.window.bandwidth_combo.currentText(),
+            self.window._t("bandwidth_unavailable"),
+        )
+        self.assertFalse(self.window.bandwidth_combo.isEnabled())
+        self.assertEqual(self.window._draft_config()["bandwidth_hz"], 2_000_000)
 
     def test_source_dropdown_shows_backend_model_and_serial(self):
         self.bridge.source.enumerate = lambda: [

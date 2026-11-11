@@ -152,6 +152,65 @@ class FakeSparseGenericApi:
         return cls.device
 
 
+class FakeUhdB100Device(FakeSparseGenericDevice):
+    def __init__(self):
+        super().__init__()
+        self.rate = 2_000_000.0
+        self.frequency = 16_300_000.0
+        self.adc_gain = 13.0
+        self.bandwidth_writes = 0
+
+    def listSampleRates(self, *_args):
+        return [1_000_000, 2_000_000, 4_000_000, 8_000_000, 16_000_000]
+
+    def getSampleRateRange(self, *_args):
+        return [(1_000_000, 16_000_000, 1_000_000)]
+
+    def listBandwidths(self, *_args):
+        return [2_000_000, *(500_000_000 + index * 1_000_000 for index in range(100))]
+
+    def getBandwidthRange(self, *_args):
+        return [(2_000_000, 599_000_000, 1_000_000)]
+
+    def setBandwidth(self, *_args):
+        self.bandwidth_writes += 1
+        raise AssertionError("B100 frontend bandwidth must not be written")
+
+    def getBandwidth(self, *_args):
+        return 500_000_000.0
+
+    def listGains(self, *_args):
+        return ["ADC-pga"]
+
+    def getGainRange(self, *_args):
+        return (0.0, 20.0, 1.0)
+
+    def getGain(self, *_args):
+        return self.adc_gain
+
+    def setGain(self, _direction, _channel, name, value):
+        if name == "ADC-pga":
+            self.adc_gain = float(value)
+
+
+class FakeUhdB100Api:
+    SOAPY_SDR_RX = 1
+    device = FakeUhdB100Device()
+
+    @staticmethod
+    def Device_enumerate(_args):
+        return [{
+            "driver": "uhd",
+            "type": "b100",
+            "serial": "EAR15U2B1",
+            "label": "EAR15U2B1",
+        }]
+
+    @classmethod
+    def Device(cls, _raw):
+        return cls.device
+
+
 class SoapyDiscoveryTests(unittest.TestCase):
     def test_only_sdr_devices_are_exposed_with_stable_ids(self):
         source = SoapySource(api=FakeSoapyApi)
@@ -203,6 +262,47 @@ class SoapyDiscoveryTests(unittest.TestCase):
         ))
         self.assertEqual(effective.center_frequency_hz, 5_800_000_000)
         self.assertEqual(api.device.bandwidth_writes, 0)
+
+    def test_uhd_b100_hides_frontend_bandwidth_caps_cs16_and_applies_adc_gain(self):
+        api = FakeUhdB100Api
+        api.device = FakeUhdB100Device()
+        source = SoapySource(api=api)
+        device_id = source.enumerate()[0].device_id
+        source.open(device_id)
+
+        # A previous build persisted UHD's 500 MHz daughterboard readback as
+        # the bridge bandwidth. Opening that configuration must recover rather
+        # than block every later rate and gain update.
+        effective = source.configure(RadioConfig(
+            center_frequency_hz=16_300_000,
+            sample_rate_sps=2_000_000,
+            bandwidth_hz=500_000_000,
+            gains={"ADC-pga": 13},
+        ))
+        self.assertEqual(effective.bandwidth_hz, 2_000_000)
+        self.assertEqual(api.device.bandwidth_writes, 0)
+
+        capabilities = source.capabilities(device_id)
+        self.assertEqual(capabilities.sample_rates_sps, (1_000_000, 2_000_000, 4_000_000, 8_000_000))
+        self.assertTrue(all(high <= 8_000_000 for _low, high, _step in capabilities.sample_rate_ranges_sps))
+        self.assertEqual(capabilities.bandwidths_hz, ())
+        self.assertEqual(capabilities.bandwidth_ranges_hz, ())
+        self.assertEqual(capabilities.gain_ranges, {"ADC-pga": (0.0, 20.0)})
+
+        effective = source.configure(RadioConfig(
+            center_frequency_hz=16_300_000,
+            sample_rate_sps=4_000_000,
+            bandwidth_hz=500_000_000,
+            gains={"ADC-pga": 18},
+        ))
+        self.assertEqual(effective.sample_rate_sps, 4_000_000)
+        self.assertEqual(effective.bandwidth_hz, 4_000_000)
+        self.assertEqual(effective.gains["ADC-pga"], 18.0)
+        self.assertEqual(api.device.adc_gain, 18.0)
+        self.assertEqual(api.device.bandwidth_writes, 0)
+
+        with self.assertRaisesRegex(ValueError, "must not exceed 8 MS/s"):
+            source.configure(RadioConfig(sample_rate_sps=16_000_000))
 
     def test_stream_requests_direct_cs16_and_skips_python_cf32_conversion(self):
         api = FakeStreamingApi
