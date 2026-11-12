@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import queue
 import threading
 import time
 from dataclasses import replace
@@ -11,6 +13,7 @@ from typing import Any
 import numpy as np
 
 from .model import (
+    choose_auto_wire_format,
     DeviceCapabilities,
     DeviceDescriptor,
     Discontinuity,
@@ -29,6 +32,12 @@ logger = logging.getLogger(__name__)
 class SoapySource(IQSource):
     """Backend Soapy générique RX ; aucun appareil n'est ouvert à l'import."""
 
+    # Several native Soapy modules keep transport state on the device object,
+    # not only on the stream handle.  Reopening the device for a stream
+    # topology change is slower, but prevents stale UHD/USB state from being
+    # reused after a live sample-rate or WIRE-format change.
+    reopen_on_stream_reconfigure = True
+
     NON_SDR_DRIVERS = frozenset({"audio"})
     DRIVER_PRIORITY = {
         "sdrplay": 10,
@@ -41,8 +50,6 @@ class SoapySource(IQSource):
         "plutosdr": 61,
         "miri": 90,
     }
-    B100_CS16_MAX_RATE_SPS = 8_000_000
-
     def __init__(self, block_samples: int = 4096, driver: str | None = None, *, api: Any | None = None):
         self.block_samples = int(block_samples)
         self.driver = driver
@@ -53,19 +60,45 @@ class SoapySource(IQSource):
         self._device = None
         self._stream = None
         self._stream_format = "CF32"
+        self._resolved_wire_format: str | None = None
+        self._read_calls = 0
+        self._short_reads = 0
+        self._minimum_read_samples = 0
+        self._maximum_read_samples = 0
+        self._rx_overflows = 0
+        self._stream_mtu_samples = 0
+        self._handoff_pool_blocks = 256
+        self._handoff_pool_misses = 0
+        self._device_args_effective: dict[str, str] = {}
+        self._stream_args_effective: dict[str, str] = {}
         self._descriptor: DeviceDescriptor | None = None
         self._on_block: BlockCallback | None = None
         self._on_error: ErrorCallback | None = None
         self._first_sample = 0
         self._control_lock = threading.RLock()
         self._last_raw_devices: list[dict[str, str]] = []
-        self._active_raw_device: dict[str, str] = {}
-        self._uhd_b100 = False
 
     @property
     def name(self) -> str:
         model = self._descriptor.model if self._descriptor else "non ouvert"
         return f"SoapySDR — {model}"
+
+    def diagnostics(self) -> dict[str, Any]:
+        return {
+            "wire_format_effective": self._resolved_wire_format,
+            "host_stream_format": self._stream_format,
+            "read_calls": self._read_calls,
+            "short_reads": self._short_reads,
+            "minimum_read_samples": self._minimum_read_samples,
+            "maximum_read_samples": self._maximum_read_samples,
+            "published_block_samples": self.block_samples,
+            "rx_overflows": self._rx_overflows,
+            "stream_mtu_samples": self._stream_mtu_samples,
+            "handoff_pool_blocks": self._handoff_pool_blocks,
+            "handoff_pool_misses": self._handoff_pool_misses,
+            "device_args_effective": dict(self._device_args_effective),
+            "stream_args_effective": dict(self._stream_args_effective),
+        }
 
     def _api(self):
         if self._api_override is not None:
@@ -130,10 +163,20 @@ class SoapySource(IQSource):
         # record and claim the device exactly once.
         with self._control_lock:
             raw = self._raw_for_id(device_id)
-            self._device = self._api().Device(raw)
+            device_args = dict(raw)
+            # SoapyUHD exposes num_recv_frames as a generic receive-transport
+            # parameter. UHD's USB devices otherwise default to only 16
+            # simultaneous transfers, which is too little scheduling headroom
+            # for a Windows GUI/DSP application at high sample rates. Apply
+            # the tuning to the UHD backend, not to a receiver model; an
+            # explicit discovery/configuration value always wins.
+            if str(device_args.get("driver", self.driver or "")).lower() == "uhd":
+                device_args.setdefault("num_recv_frames", "1024")
+            self._device_args_effective = {
+                str(key): str(value) for key, value in device_args.items()
+            }
+            self._device = self._api().Device(device_args)
             self._descriptor = self._descriptor_from_raw(raw)
-            self._active_raw_device = dict(raw)
-            self._uhd_b100 = self._is_uhd_b100(raw)
 
     def capabilities(self, device_id: str) -> DeviceCapabilities:
         with self._control_lock:
@@ -164,21 +207,6 @@ class SoapySource(IQSource):
             gain_names = tuple(str(value) for value in self._optional_call(
                 device, "listGains", api.SOAPY_SDR_RX, 0, default=()
             ))
-            is_uhd_b100 = self._is_uhd_b100(raw, gain_names)
-            if is_uhd_b100:
-                # UHD exposes rates that are usable only with 8-bit wire
-                # samples. SDRbridge intentionally receives CS16, for which
-                # the USB 2.0 B100 limit is 8 MS/s.
-                rates = tuple(value for value in rates if value <= self.B100_CS16_MAX_RATE_SPS)
-                if not rates:
-                    rates = (min(self._config.sample_rate_sps, self.B100_CS16_MAX_RATE_SPS),)
-                rate_ranges = tuple(
-                    (low, min(high, float(self.B100_CS16_MAX_RATE_SPS)), step)
-                    for low, high, step in rate_ranges
-                    if low <= self.B100_CS16_MAX_RATE_SPS
-                )
-                if not temporary:
-                    self._uhd_b100 = True
             for name in gain_names:
                 value_range = self._optional_call(
                     device, "getGainRange", api.SOAPY_SDR_RX, 0, name, default=None
@@ -208,13 +236,23 @@ class SoapySource(IQSource):
             }))
             if not bandwidths:
                 bandwidths = self._values_from_ranges(bandwidth_ranges, self._config.bandwidth_hz)
-            if is_uhd_b100:
-                # On the B100, UHD reports the daughterboard RF frontend
-                # bandwidth (often hundreds of MHz) as if it were a tunable
-                # baseband filter. It is not the IQ span and must not be sent
-                # back through setBandwidth().
-                bandwidths = ()
-                bandwidth_ranges = ()
+            stream_args_info = self._optional_call(
+                device, "getStreamArgsInfo", api.SOAPY_SDR_RX, 0, default=()
+            )
+            wire_formats: tuple[str, ...] = ()
+            wire_format_default: str | None = None
+            for info in stream_args_info:
+                key = str(getattr(info, "key", ""))
+                if key.upper() != "WIRE":
+                    continue
+                wire_formats = tuple(
+                    dict.fromkeys(
+                        str(value) for value in (getattr(info, "options", ()) or ()) if str(value)
+                    )
+                )
+                raw_default = str(getattr(info, "value", "") or "")
+                wire_format_default = raw_default if raw_default in wire_formats else None
+                break
             agc_available = bool(self._optional_call(
                 device, "hasGainMode", api.SOAPY_SDR_RX, 0, default=False
             ))
@@ -222,6 +260,7 @@ class SoapySource(IQSource):
                 device_id, frequency_ranges, rates, bandwidths, antennas, gains,
                 agc_available, (SampleFormat.CS16,), 1, rate_ranges,
                 bandwidth_ranges, gain_values, gain_steps,
+                wire_formats, wire_format_default,
             )
         finally:
             if temporary:
@@ -248,18 +287,6 @@ class SoapySource(IQSource):
                 extra={"code": "SOAPY_OPTIONAL_CAPABILITY", "details": {"method": method_name, "error": str(exc)}},
             )
             return default
-
-    @staticmethod
-    def _is_uhd_b100(raw: dict[str, Any], gain_names=()) -> bool:
-        """Recognize the legacy USB B100 without relying on its display label."""
-        driver = str(raw.get("driver", "")).lower()
-        if driver != "uhd":
-            return False
-        identity = " ".join(
-            str(raw.get(key, "")).lower()
-            for key in ("type", "product", "hardware", "name", "label")
-        )
-        return "b100" in identity or any(str(name).lower() == "adc-pga" for name in gain_names)
 
     @staticmethod
     def _read_ranges(device: Any, method_name: str, api: Any) -> tuple[tuple[float, float, float], ...]:
@@ -291,21 +318,65 @@ class SoapySource(IQSource):
                     values.add(int(current))
         return tuple(sorted(value for value in values if value > 0))
 
-    def _set_requested(self, config: RadioConfig) -> None:
+    @staticmethod
+    def _closest_supported_value(
+        requested: int,
+        discrete: tuple[int, ...],
+        ranges: tuple[tuple[float, float, float], ...],
+    ) -> int:
+        """Choose only values reported by the driver; never use a model table."""
+        if discrete:
+            return min(discrete, key=lambda value: (abs(int(value) - requested), int(value)))
+        if not ranges:
+            return requested
+        candidates: list[int] = []
+        for low, high, step in ranges:
+            low_i, high_i = int(round(low)), int(round(high))
+            if low_i <= requested <= high_i:
+                if step > 0:
+                    snapped = low_i + round((requested - low_i) / step) * int(round(step))
+                    return max(low_i, min(high_i, int(snapped)))
+                return requested
+            candidates.extend((low_i, high_i))
+        return min(candidates, key=lambda value: (abs(value - requested), value))
+
+    def _normalise_request(self, request: RadioConfig, capabilities: DeviceCapabilities) -> RadioConfig:
+        wire_format = request.wire_format
+        if wire_format is not None:
+            match = next(
+                (value for value in capabilities.wire_formats if value.lower() == wire_format.lower()),
+                None,
+            )
+            if match is None:
+                raise ValueError(f"unsupported IQ transport format: {wire_format}")
+            wire_format = match
+        return replace(
+            request,
+            sample_rate_sps=self._closest_supported_value(
+                request.sample_rate_sps,
+                capabilities.sample_rates_sps,
+                capabilities.sample_rate_ranges_sps,
+            ),
+            bandwidth_hz=self._closest_supported_value(
+                request.bandwidth_hz,
+                capabilities.bandwidths_hz,
+                capabilities.bandwidth_ranges_hz,
+            ),
+            wire_format=wire_format,
+        )
+
+    def _set_requested(self, config: RadioConfig, capabilities: DeviceCapabilities) -> None:
         api, dev = self._api(), self._device
         if dev is None:
             raise RuntimeError("Soapy source is not open")
         available_gains = set(str(value) for value in self._optional_call(
             dev, "listGains", api.SOAPY_SDR_RX, 0, default=()
         ))
-        self._uhd_b100 = self._uhd_b100 or self._is_uhd_b100(
-            self._active_raw_device, available_gains
-        )
         dev.setSampleRate(api.SOAPY_SDR_RX, 0, float(config.sample_rate_sps))
         dev.setFrequency(api.SOAPY_SDR_RX, 0, float(config.center_frequency_hz))
-        bandwidths = self._optional_call(dev, "listBandwidths", api.SOAPY_SDR_RX, 0, default=())
-        bandwidth_ranges = self._read_ranges(dev, "getBandwidthRange", api)
-        if not self._uhd_b100 and (bandwidths or bandwidth_ranges) and hasattr(dev, "setBandwidth"):
+        if (
+            capabilities.bandwidths_hz or capabilities.bandwidth_ranges_hz
+        ) and hasattr(dev, "setBandwidth"):
             dev.setBandwidth(api.SOAPY_SDR_RX, 0, float(config.bandwidth_hz))
         antennas = tuple(str(value) for value in self._optional_call(
             dev, "listAntennas", api.SOAPY_SDR_RX, 0, default=()
@@ -333,25 +404,22 @@ class SoapySource(IQSource):
             return self._configure_unlocked(request)
 
     def _configure_unlocked(self, request: RadioConfig) -> RadioConfig:
-        if not self._uhd_b100 and self._device is not None:
-            api = self._api()
-            gain_names = self._optional_call(
-                self._device, "listGains", api.SOAPY_SDR_RX, 0, default=()
-            )
-            self._uhd_b100 = self._is_uhd_b100(self._active_raw_device, gain_names)
-        if self._uhd_b100:
-            if request.sample_rate_sps > self.B100_CS16_MAX_RATE_SPS:
-                raise ValueError("USRP B100 CS16 sample rate must not exceed 8 MS/s")
-            if not 1 <= request.bandwidth_hz <= 20_000_000:
-                # Recover configurations produced by the previous build,
-                # which copied UHD's 500 MHz frontend readback into the bridge
-                # setting and consequently rejected every later update.
-                request = replace(
-                    request,
-                    bandwidth_hz=min(request.sample_rate_sps, self.B100_CS16_MAX_RATE_SPS),
-                )
+        if self._device is None or self._descriptor is None:
+            raise RuntimeError("Soapy source is not open")
+        capabilities = self._capabilities_unlocked(self._descriptor.device_id)
+        request = self._normalise_request(request, capabilities)
         request.validate()
-        self._set_requested(request)
+        maximum_rate = max(
+            (*capabilities.sample_rates_sps, *(int(item[1]) for item in capabilities.sample_rate_ranges_sps)),
+            default=0,
+        )
+        self._resolved_wire_format = request.wire_format or choose_auto_wire_format(
+            capabilities.wire_formats,
+            capabilities.wire_format_default,
+            request.sample_rate_sps,
+            maximum_rate,
+        )
+        self._set_requested(request, capabilities)
         dev, api = self._device, self._api()
         frequency = int(round(self._optional_call(
             dev, "getFrequency", api.SOAPY_SDR_RX, 0, default=request.center_frequency_hz
@@ -359,7 +427,7 @@ class SoapySource(IQSource):
         rate = int(round(self._optional_call(
             dev, "getSampleRate", api.SOAPY_SDR_RX, 0, default=request.sample_rate_sps
         )))
-        bandwidth = request.bandwidth_hz if self._uhd_b100 else int(round(self._optional_call(
+        bandwidth = int(round(self._optional_call(
             dev, "getBandwidth", api.SOAPY_SDR_RX, 0, default=request.bandwidth_hz
         )))
         gain_names = tuple(str(value) for value in self._optional_call(
@@ -388,6 +456,7 @@ class SoapySource(IQSource):
             gains=gains or request.gains,
             sample_format=SampleFormat.CS16,
             revision=request.revision,
+            wire_format=request.wire_format,
         )
         return self._config
 
@@ -395,65 +464,153 @@ class SoapySource(IQSource):
         self.configure(config)
 
     def start(self, on_block: BlockCallback, on_error: ErrorCallback | None = None) -> None:
-        if self._device is None:
-            raise RuntimeError("Soapy source is not open")
-        if self._thread and self._thread.is_alive():
-            raise RuntimeError("source already started")
-        api = self._api()
-        self._on_block, self._on_error = on_block, on_error
-        requested_cs16 = getattr(api, "SOAPY_SDR_CS16", "CS16")
-        try:
-            # Ask Soapy to perform the native/converter step in its compiled
-            # stream path. Converting 8-10 MS/s CF32 to CS16 with NumPy in a
-            # Python RX thread contended with the dispatcher and filled the
-            # source queue even though the machine-wide CPU was not full.
-            self._stream = self._device.setupStream(api.SOAPY_SDR_RX, requested_cs16)
-            self._stream_format = "CS16"
-        except Exception as exc:
-            self._stream = self._device.setupStream(api.SOAPY_SDR_RX, api.SOAPY_SDR_CF32)
-            self._stream_format = "CF32"
-            logger.warning(
-                "Soapy CS16 stream unavailable; falling back to Python CF32 conversion",
-                extra={"code": "SOAPY_CF32_FALLBACK", "details": {"error": str(exc)}},
-            )
-        self._device.activateStream(self._stream)
-        self._stop.clear()
-        self._first_sample = 0
-        self._thread = threading.Thread(target=self._run, name="soapy-rx", daemon=True)
-        self._thread.start()
+        with self._control_lock:
+            if self._device is None:
+                raise RuntimeError("Soapy source is not open")
+            if self._thread and self._thread.is_alive():
+                raise RuntimeError("source already started")
+            api = self._api()
+            self._on_block, self._on_error = on_block, on_error
+            stream_args = {"WIRE": self._resolved_wire_format} if self._resolved_wire_format else None
+            self._stream_args_effective = {
+                str(key): str(value) for key, value in (stream_args or {}).items()
+            }
+            preferred_formats: list[str] = []
+            if str(self._resolved_wire_format or "").lower() == "sc8":
+                # Keep the high-rate path eight-bit until a complete bridge
+                # block has been collected.  Asking SoapyUHD for CS16 here
+                # forced a per-fragment SC8 -> CS16 conversion and doubled the
+                # host-side copy traffic before SDRbridge could aggregate it.
+                preferred_formats.append(getattr(api, "SOAPY_SDR_CS8", "CS8"))
+            preferred_formats.extend((
+                getattr(api, "SOAPY_SDR_CS16", "CS16"),
+                getattr(api, "SOAPY_SDR_CF32", "CF32"),
+            ))
+            setup_errors: list[tuple[str, str]] = []
+            for host_format in dict.fromkeys(preferred_formats):
+                try:
+                    self._stream = self._device.setupStream(
+                        api.SOAPY_SDR_RX, host_format, args=stream_args
+                    )
+                    self._stream_format = str(host_format).upper()
+                    break
+                except Exception as exc:
+                    setup_errors.append((str(host_format), str(exc)))
+            if self._stream is None:
+                raise RuntimeError(f"Soapy stream setup failed: {setup_errors}")
+            if setup_errors:
+                logger.info(
+                    "preferred Soapy host format unavailable; using fallback",
+                    extra={
+                        "code": "SOAPY_HOST_FORMAT_FALLBACK",
+                        "details": {
+                            "selected": self._stream_format,
+                            "failed": setup_errors,
+                        },
+                    },
+                )
+            try:
+                self._device.activateStream(self._stream)
+            except BaseException:
+                stream, self._stream = self._stream, None
+                if stream is not None:
+                    self._device.closeStream(stream)
+                raise
+            self._stream_mtu_samples = int(self._optional_call(
+                self._device, "getStreamMTU", self._stream, default=0
+            ) or 0)
+            self._stop.clear()
+            self._first_sample = 0
+            self._read_calls = 0
+            self._short_reads = 0
+            self._minimum_read_samples = 0
+            self._maximum_read_samples = 0
+            self._rx_overflows = 0
+            self._handoff_pool_misses = 0
+            self._thread = threading.Thread(target=self._run, name="soapy-rx", daemon=True)
+            self._thread.start()
 
     def stop(self) -> None:
         self._stop.set()
-        if self._thread and self._thread is not threading.current_thread():
-            self._thread.join(timeout=2.0)
-            if self._thread.is_alive():
-                raise RuntimeError("Soapy RX thread did not stop")
-        if self._device is not None and self._stream is not None:
-            try:
-                self._device.deactivateStream(self._stream)
-            finally:
-                self._device.closeStream(self._stream)
-        self._thread = None
-        self._stream = None
+        with self._control_lock:
+            thread = self._thread
+            if thread and thread is not threading.current_thread():
+                thread.join(timeout=2.0)
+                if thread.is_alive():
+                    raise RuntimeError("Soapy RX thread did not stop")
+            self._thread = None
+            stream, self._stream = self._stream, None
+            if self._device is not None and stream is not None:
+                try:
+                    self._device.deactivateStream(stream)
+                finally:
+                    self._device.closeStream(stream)
 
     def close(self) -> None:
-        self.stop()
-        self._device = None
-        self._descriptor = None
-        self._active_raw_device = {}
-        self._uhd_b100 = False
+        with self._control_lock:
+            self.stop()
+            device, self._device = self._device, None
+            self._descriptor = None
+            close = getattr(device, "close", None)
+            if callable(close):
+                close()
+
+    @staticmethod
+    def _raise_rx_thread_priority() -> None:
+        """Reduce scheduling jitter on high-rate USB streams on Windows."""
+        if os.name != "nt":
+            return
+        try:
+            import ctypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.GetCurrentThread.restype = ctypes.c_void_p
+            kernel32.SetThreadPriority.argtypes = (ctypes.c_void_p, ctypes.c_int)
+            # THREAD_PRIORITY_HIGHEST within the normal process class. This
+            # remains below time-critical priority and leaves the dispatcher,
+            # DSP workers and GUI schedulable.
+            kernel32.SetThreadPriority(kernel32.GetCurrentThread(), 2)
+        except Exception:
+            logger.debug("could not raise Soapy RX thread priority", exc_info=True)
 
     def _run(self) -> None:
+        self._raise_rx_thread_priority()
         api = self._api()
         direct_cs16 = self._stream_format == "CS16"
+        direct_cs8 = self._stream_format == "CS8"
         overflow_code = getattr(api, "SOAPY_SDR_OVERFLOW", -4)
         pending_source_loss = False
         next_overflow_log_at = 0.0
-        buffer = (
-            np.empty((self.block_samples, 2), dtype="<i2")
-            if direct_cs16
-            else np.empty(self.block_samples, dtype=np.complex64)
-        )
+        if direct_cs8:
+            buffer = np.empty((self.block_samples, 2), dtype="i1")
+        elif direct_cs16:
+            buffer = np.empty((self.block_samples, 2), dtype="<i2")
+        else:
+            buffer = np.empty(self.block_samples, dtype=np.complex64)
+        # UHD and some USB backends may return transport-sized fragments far
+        # smaller than the requested application block. Publishing every one
+        # separately multiplies Python queue/ring/DSP overhead by thousands at
+        # high rates. Coalesce them into the configured bridge block size.
+        handoff_pool: queue.SimpleQueue[np.ndarray] | None = None
+        handoff_return = None
+        if direct_cs8:
+            # Pre-allocate raw SC8 handoff blocks. Ownership is transferred to
+            # the bridge until the dispatcher has widened the block to CS16,
+            # so the UHD read thread no longer performs a 64 KiB bytes copy on
+            # every 32768-sample block at 16 MS/s.
+            handoff_pool = queue.SimpleQueue()
+            for _ in range(self._handoff_pool_blocks):
+                handoff_pool.put(np.empty((self.block_samples, 2), dtype="i1"))
+            handoff_return = handoff_pool.put
+            aggregate = handoff_pool.get()
+        else:
+            aggregate = np.empty((self.block_samples, 2), dtype="<i2")
+        aggregate_count = 0
+        aggregate_first_sample = 0
+        aggregate_timestamp = 0
+        aggregate_time_domain = TimeDomain.HOST_MONOTONIC
+        aggregate_origin = TimestampOrigin.HOST_OBSERVATION
+        stream_sample_index = 0
         try:
             while not self._stop.is_set():
                 result = self._device.readStream(self._stream, [buffer], self.block_samples, timeoutUs=250_000)
@@ -467,7 +624,9 @@ class SoapySource(IQSource):
                     # published block as a continuity break so rings, DSP and
                     # recorders can reset safely while acquisition continues.
                     pending_source_loss = True
-                    self._first_sample = 0
+                    self._rx_overflows += 1
+                    aggregate_count = 0
+                    stream_sample_index = 0
                     now = time.monotonic()
                     if now >= next_overflow_log_at:
                         next_overflow_log_at = now + 5.0
@@ -479,22 +638,60 @@ class SoapySource(IQSource):
                 if result.ret < 0:
                     raise RuntimeError(f"SoapySDR readStream failed: {result.ret}")
                 count = int(result.ret)
-                if direct_cs16:
+                self._read_calls += 1
+                if count < self.block_samples:
+                    self._short_reads += 1
+                self._minimum_read_samples = count if not self._minimum_read_samples else min(
+                    self._minimum_read_samples, count
+                )
+                self._maximum_read_samples = max(self._maximum_read_samples, count)
+                if direct_cs16 or direct_cs8:
                     values = buffer[:count]
                 else:
                     samples = np.clip(buffer[:count].view(np.float32), -1.0, 0.9999695)
-                    values = np.rint(samples * 32768.0).astype("<i2", copy=False)
+                    values = np.rint(samples * 32768.0).astype("<i2", copy=False).reshape(count, 2)
                 timestamp = int(result.timeNs) if getattr(result, "timeNs", 0) else time.monotonic_ns()
                 time_domain = TimeDomain.DEVICE_RELATIVE if getattr(result, "timeNs", 0) else TimeDomain.HOST_MONOTONIC
                 origin = TimestampOrigin.HARDWARE if getattr(result, "timeNs", 0) else TimestampOrigin.HOST_OBSERVATION
-                discontinuity = Discontinuity.SOURCE_LOSS if pending_source_loss else Discontinuity.NONE
-                lost_samples = None if pending_source_loss else 0
-                self._on_block(SourceChunk(
-                    memoryview(values).cast("B"), count, self._first_sample,
-                    timestamp, time_domain, origin, discontinuity, lost_samples,
-                ))
-                pending_source_loss = False
-                self._first_sample += count
+                consumed = 0
+                while consumed < count:
+                    if aggregate_count == 0:
+                        aggregate_first_sample = stream_sample_index + consumed
+                        aggregate_timestamp = timestamp + round(
+                            consumed * 1_000_000_000 / max(1, self._config.sample_rate_sps)
+                        )
+                        aggregate_time_domain = time_domain
+                        aggregate_origin = origin
+                    amount = min(self.block_samples - aggregate_count, count - consumed)
+                    aggregate[aggregate_count:aggregate_count + amount] = values[consumed:consumed + amount]
+                    aggregate_count += amount
+                    consumed += amount
+                    if aggregate_count != self.block_samples:
+                        continue
+                    discontinuity = Discontinuity.SOURCE_LOSS if pending_source_loss else Discontinuity.NONE
+                    lost_samples = None if pending_source_loss else 0
+                    completed = aggregate
+                    self._on_block(SourceChunk(
+                        memoryview(completed).cast("B"), aggregate_count, aggregate_first_sample,
+                        aggregate_timestamp, aggregate_time_domain, aggregate_origin,
+                        discontinuity, lost_samples,
+                        "CS8" if direct_cs8 else "CS16",
+                        handoff_return if direct_cs8 else None,
+                        completed if direct_cs8 else None,
+                    ))
+                    pending_source_loss = False
+                    aggregate_count = 0
+                    if direct_cs8:
+                        try:
+                            aggregate = handoff_pool.get_nowait()
+                        except queue.Empty:
+                            # This is a safety fallback only: the bridge queue
+                            # is bounded to the same order and normally returns
+                            # a buffer long before the pool is exhausted.
+                            self._handoff_pool_misses += 1
+                            aggregate = np.empty((self.block_samples, 2), dtype="i1")
+                stream_sample_index += count
+                self._first_sample = stream_sample_index
         except BaseException as exc:
             if self._on_error and not self._stop.is_set():
                 self._on_error(exc)

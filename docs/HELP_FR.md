@@ -43,9 +43,13 @@ SDRbridge.
 - **Débit d'échantillonnage** : largeur du flux IQ produit par le SDR.
 - **Bande passante** : filtre analogique/IF réellement exposé par le matériel.
   Le mode Auto choisit la valeur disponible la plus proche du débit demandé.
-- Sur un Ettus B100, la largeur IQ suit le débit (jusqu'à 8 MS/s en CS16). La
-  bande passante du frontend annoncée par UHD n'est pas un filtre IQ réglable :
-  SDRbridge la masque volontairement. `ADC-pga` est le gain de réception disponible.
+- **Transport IQ** apparaît uniquement lorsque le pilote Soapy annonce des
+  formats natifs. Il règle le lien SDR-ordinateur, pas les flux clients CS16.
+  Par exemple, un B100 peut utiliser SC16 jusqu'à 8 MS/s ou SC8 jusqu'à 16 MS/s.
+  Auto affiche son choix effectif et privilégie la précision dans l'enveloppe
+  de débit annoncée par le pilote.
+- Chaque débit, bande passante, antenne et gain affiché provient des capacités
+  Soapy du récepteur sélectionné ; SDRbridge ne contient aucune table par modèle.
 - **IFGR/RFGR** : réductions de gain du SDRplay. Un déplacement vers la droite
   correspond visuellement à davantage de gain, même si le matériel expose une
   atténuation.
@@ -54,16 +58,22 @@ SDRbridge.
 
 ## Pertes et performances
 
-**Total losses** compte les pertes source, DSP et UDP. Une valeur qui augmente
-indique qu'un échantillon ou un bloc utile n'a pas pu être traité. La valeur
-**SDRbridge CPU** est exprimée en cœurs logiques utilisés, pas en pourcentage de
+**Pertes totales** regroupe plusieurs compteurs. Les pertes **source** sont
+signalées par le récepteur ou son pilote avant le traitement SDRbridge. Les
+pertes de **file**, **DSP** et **profil** concernent le chemin de traitement
+interne. Les pertes **UDP** concernent la file d'une destination ou la sortie
+réseau. Le rapport de diagnostic conserve ces catégories séparées. La valeur
+**CPU SDRbridge** est exprimée en cœurs logiques utilisés, pas en pourcentage de
 la machine entière.
 
 Si des pertes apparaissent :
 
-1. réduisez les FFT très grandes et utilisez Waterfall seul ;
-2. réduisez le débit d'un client ou supprimez un client inutilisé ;
-3. augmentez modérément la file du client ;
+1. pour les pertes internes, réduisez les FFT très grandes, utilisez Cascade
+   seule, réduisez le débit d'un client ou supprimez un client inutilisé ;
+2. pour les pertes UDP, augmentez modérément la file du client et vérifiez le
+   réseau ;
+3. pour les pertes source, vérifiez le récepteur, son pilote, sa connexion et
+   le débit réellement appliqué ;
 4. utilisez **Diagnostics → Exporter le rapport ZIP** et joignez le fichier au
    rapport de bug.
 
@@ -97,17 +107,14 @@ Les autres hôtes ExtIO Win32 ne sont pas garantis sans essai.
 SDRbridge inclut son propre SoapySDR. Il ne faut pas copier ses DLL dans
 PothosSDR, ANTRACK ou SDR++.
 
-La branche de développement postérieure à 0.6.1 ajoute des modules ABI 0.8
-privés pour RTL-SDR, Airspy R2, Airspy HF+, LimeSDR, ADALM-Pluto et USRP/UHD.
-Les contrôles matériels ne sont affichés que si le module sélectionné les
-annonce. Le premier essai avec l'USRP B100 doit être réalisé à 1 MS/s, puis à
-4 MS/s, avec **Pertes totales** restant à zéro.
+La version 0.7.0 inclut des modules ABI 0.8 privés pour SDRplay, RTL-SDR,
+Airspy R2, Airspy HF+, LimeSDR, ADALM-Pluto et USRP/UHD. Les contrôles matériels
+ne sont affichés que si le module sélectionné les annonce.
 
-Le paquet 0.6.1 inclut uniquement le module matériel `SoapySDRPlay3`. Les
-SDRplay sont donc les seuls récepteurs matériels utilisables immédiatement avec
-l'installateur. Un RTL-SDR, USRP/UHD, Airspy, HackRF ou LimeSDR nécessite un
-module Soapy compatible ajouté et qualifié dans le runtime privé de SDRbridge ;
-les modules de l'installation PothosSDR globale ne sont pas chargés.
+Avant de démarrer SDRbridge, installer et valider le pilote, l'API, le firmware
+et les images matérielles du constructeur. SDRbridge n'installe ni ne modifie
+cette pile. Les modules de l'installation PothosSDR globale ne sont pas chargés
+dans le runtime privé de SDRbridge.
 
 ## Destinations UDP sur le LAN
 
@@ -127,6 +134,6 @@ les rapports de problème sont disponibles sur
 https://github.com/stephanerey/SDRbridge.
 
 Le logiciel a été développé avec l'assistance de l'IA, sous direction humaine,
-avec revue, essais matériels et validation des versions, en utilisant la SR
-Method 4.1 d'Auroramind :
-https://github.com/syl2042/Aurora_SR_method_codex_pack.
+avec revue, essais matériels et validation des versions, en utilisant la
+[SR Method 4.1](https://github.com/syl2042/Aurora_SR_method_codex_pack)
+d'[Auroramind](https://www.auroramind.fr/).

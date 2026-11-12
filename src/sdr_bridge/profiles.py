@@ -89,7 +89,13 @@ class PipelinePool:
         self._lock = threading.RLock()
         self._pipelines: dict[tuple, _SharedPipeline] = {}
         self._workers: dict[tuple, _PipelineWorker] = {}
-        self._parallel_queue_blocks = 64
+        # A child profile consumes the output of its parent asynchronously.
+        # Windows can occasionally suspend Python workers for a few hundred
+        # milliseconds even when the average DSP time is comfortably below
+        # the block budget.  At 16 MS/s, 64 input-duration blocks only cover
+        # about 131 ms; 256 cover about 524 ms while using only a few MiB for
+        # the usual 2 MS/s -> 96 kS/s child stage.
+        self._parallel_queue_blocks = 256
 
     def _key(self, profile: StreamProfile) -> tuple:
         return (self.source_id, self.input_rate, self.input_format, profile.output_rate_sps, profile.sample_format, profile.center_offset_hz)
@@ -321,16 +327,31 @@ class PipelinePool:
                 reverse=True,
             )
             if self.parallel_workers > 1 and self.input_rate >= self._PARALLEL_RATE_THRESHOLD:
-                # Every stage owns a persistent worker and bounded queue.
-                # Acquisition feeds roots only; each worker forwards its output
-                # to its cascaded children. The costly first decimation is thus
-                # shared while adjacent stages may use different CPU cores.
+                # Process roots in the bridge DSP worker itself. Feeding the
+                # first decimator through another 64-block Python queue added
+                # scheduling jitter and could overflow at 16 MS/s even though
+                # the filter had enough sustained throughput. The bridge DSP
+                # queue already provides 256 blocks of bounded back-pressure.
+                # Children retain their own workers, so adjacent cascade stages
+                # still execute on separate CPU cores.
                 for key, shared in pipelines:
-                    self._ensure_worker_locked(key, shared)
+                    if shared.parent_key is not None:
+                        self._ensure_worker_locked(key, shared)
+                pipeline_map = dict(self._pipelines)
+                workers = dict(self._workers)
                 for key, shared in pipelines:
                     if shared.parent_key is not None:
                         continue
-                    self._enqueue_worker(self._workers[key], block)
+                    output = shared.processor.process(block)
+                    if output is None:
+                        continue
+                    with shared.consumer_lock:
+                        callbacks = list(shared.consumers.values())
+                    for callback in callbacks:
+                        callback(output)
+                    for child_key, child in pipeline_map.items():
+                        if child.parent_key == key and child_key in workers:
+                            self._enqueue_worker(workers[child_key], output)
                 return
             produced: dict[tuple, IQBlock] = {}
             # Garder le verrou pendant l'émission protège les rings de profil

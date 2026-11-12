@@ -7,6 +7,7 @@ import math
 
 import numpy as np
 from scipy import signal
+from scipy import fft as scipy_fft
 
 from .model import (
     Discontinuity,
@@ -21,8 +22,12 @@ def payload_to_complex(payload: memoryview | bytes, sample_format: SampleFormat)
         scalars = np.frombuffer(payload, dtype="<i2")
         if len(scalars) % 2:
             raise ValueError("CS16 payload has a partial IQ sample")
-        pairs = scalars.reshape(-1, 2).astype(np.float32)
-        return ((pairs[:, 0] + 1j * pairs[:, 1]) / 32768.0).astype(np.complex64)
+        pairs = scalars.reshape(-1, 2)
+        output = np.empty(len(pairs), dtype=np.complex64)
+        output.real = pairs[:, 0]
+        output.imag = pairs[:, 1]
+        output *= np.float32(1.0 / 32768.0)
+        return output
     scalars = np.frombuffer(payload, dtype="<f4")
     if len(scalars) % 2:
         raise ValueError("CF32 payload has a partial IQ sample")
@@ -249,9 +254,11 @@ class StreamingRationalResampler:
                     stopband_attenuation_db=min(integer.stopband_attenuation_db, final.stopband_attenuation_db),
                 )
             else:
-                self._prefilter_sos, self.taps, self.characterization = (
+                prefilter_sos, taps, self.characterization = (
                     design_fractional_decimator_filters(input_rate, output_rate)
                 )
+                self._prefilter_sos = np.asarray(prefilter_sos, dtype=np.float32)
+                self.taps = np.asarray(taps, dtype=np.float32)
         if self._integer_stage is not None:
             self._history_inputs = 0
             self._history_capacity = 0
@@ -268,7 +275,7 @@ class StreamingRationalResampler:
         if self._prefilter_sos is not None:
             self._prefilter_state = np.zeros(
                 (len(self._prefilter_sos), 2),
-                dtype=np.complex128,
+                dtype=np.complex64,
             )
         self._history = np.empty(0, dtype=np.complex64)
         self._input_seen = 0
@@ -364,18 +371,64 @@ class StreamingIntegerDecimator:
     def __init__(self, input_rate: int, factor: int):
         self.input_rate = int(input_rate)
         self.factor = int(factor)
-        self.sos, self.characterization = design_integer_decimator_filter(self.input_rate, self.factor)
+        self._fft_taps: np.ndarray | None = None
+        if self.input_rate >= 8_000_000:
+            # At high source rates SDRbridge publishes 32k-sample blocks. A
+            # causal overlap-save FIR is substantially faster there than the
+            # elliptic SOS (about 54 versus 37 MS/s on the reference PC),
+            # while retaining the documented 80 dB stop-band. Small-rate
+            # stages keep the lower-overhead IIR path below.
+            taps, self.characterization = design_resampler_filter(
+                self.input_rate,
+                self.input_rate // self.factor,
+            )
+            self._fft_taps = np.asarray(taps, dtype=np.float32)
+            self._fft_kernel_cache: dict[int, tuple[int, np.ndarray]] = {}
+            self.sos = np.empty((0, 6), dtype=np.float32)
+        else:
+            sos, self.characterization = design_integer_decimator_filter(
+                self.input_rate,
+                self.factor,
+            )
+            # A float64 SOS promotes every CS16 block to complex128.
+            self.sos = np.asarray(sos, dtype=np.float32)
         self.reset()
 
     def reset(self) -> None:
-        self._state = np.zeros((len(self.sos), 2), dtype=np.complex128)
+        self._state = np.zeros((len(self.sos), 2), dtype=np.complex64)
+        self._overlap = (
+            np.zeros(len(self._fft_taps) - 1, dtype=np.complex64)
+            if self._fft_taps is not None
+            else np.empty(0, dtype=np.complex64)
+        )
         self._input_seen = 0
 
     def process(self, values: np.ndarray) -> np.ndarray:
         data = np.asarray(values, dtype=np.complex64)
         if not len(data):
             return np.empty(0, dtype=np.complex64)
-        filtered, self._state = signal.sosfilt(self.sos, data, zi=self._state)
+        if self._fft_taps is not None:
+            full_length = len(data) + len(self._fft_taps) - 1
+            cached = self._fft_kernel_cache.get(len(data))
+            if cached is None:
+                fft_length = scipy_fft.next_fast_len(full_length)
+                kernel = scipy_fft.fft(self._fft_taps, fft_length)
+                if len(self._fft_kernel_cache) >= 8:
+                    self._fft_kernel_cache.clear()
+                self._fft_kernel_cache[len(data)] = (fft_length, kernel)
+            else:
+                fft_length, kernel = cached
+            convolution = scipy_fft.ifft(
+                scipy_fft.fft(data, fft_length) * kernel,
+            )[:full_length].astype(np.complex64, copy=False)
+            # Overlap-add preserves the causal FIR tail without enlarging the
+            # next FFT. This is important: prepending the history made an
+            # otherwise fast 32k transform land on a much slower FFT length.
+            convolution[:len(self._overlap)] += self._overlap
+            filtered = convolution[:len(data)]
+            self._overlap = convolution[len(data):].copy()
+        else:
+            filtered, self._state = signal.sosfilt(self.sos, data, zi=self._state)
         first = (-self._input_seen) % self.factor
         self._input_seen += len(data)
         return filtered[first::self.factor].astype(np.complex64, copy=False)

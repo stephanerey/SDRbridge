@@ -40,9 +40,13 @@ stereo int16 WAV. The default Save As location is SDRbridge's `Captures` folder.
 - **Sample rate** is the width of the IQ stream produced by the SDR.
 - **Bandwidth** is the analogue/IF hardware filter exposed by the device. Auto
   chooses the available value closest to the requested sample rate.
-- On an Ettus B100, the IQ span follows the sample rate (up to 8 MS/s in CS16).
-  UHD's daughterboard frontend bandwidth is not an adjustable IQ filter, so
-  SDRbridge deliberately hides it. `ADC-pga` is the available receive gain.
+- **IQ transport** appears only when the Soapy driver advertises native wire
+  formats. It changes the SDR-to-computer link, not the CS16 client streams.
+  For example, a B100 can use SC16 up to 8 MS/s or SC8 up to 16 MS/s.
+  Auto displays its effective choice and favours precision while staying
+  within the throughput envelope advertised by the driver.
+- Every listed sample rate, bandwidth, antenna and gain comes from the selected
+  receiver's Soapy capabilities; SDRbridge contains no receiver-model table.
 - SDRplay **IFGR/RFGR** are gain reductions. The GUI reverses their visual
   direction so moving right behaves like increasing gain.
 - **RF profiles** automatically apply antenna, gain, AGC and bandwidth by
@@ -50,13 +54,18 @@ stereo int16 WAV. The default Save As location is SDRbridge's `Captures` folder.
 
 ## Losses and performance
 
-**Total losses** includes source, DSP and UDP losses. A rising value means that
-useful samples or blocks could not be processed. **SDRbridge CPU** is displayed
-as logical cores used, not total-machine percentage.
+**Total losses** combines several counters. **Source** losses are reported by
+the receiver or its driver before SDRbridge processing. **Queue**, **DSP** and
+**profile** losses occur inside the processing path. **UDP** losses concern a
+destination queue or network output. The diagnostic report keeps these
+categories separate. **SDRbridge CPU** is displayed as logical cores used, not
+total-machine percentage.
 
-If losses appear, reduce very large FFTs, use Waterfall only, lower an output
-rate, remove unused clients, or moderately increase that destination's queue.
-Use **Diagnostics → Export report ZIP** and attach the archive to a bug report.
+For internal processing losses, reduce very large FFTs, use Waterfall only,
+lower an output rate or remove unused clients. For UDP losses, moderately
+increase that destination's queue and check the network. For source losses,
+check the receiver, its driver, connection and effective sample rate. Use
+**Diagnostics → Export report ZIP** and attach the archive to a bug report.
 
 ## HDSDR and local ExtIO clients
 
@@ -88,16 +97,14 @@ Other Win32 ExtIO hosts are not guaranteed without an explicit test.
 SDRbridge includes its own SoapySDR runtime. Do not copy its DLLs into
 PothosSDR, ANTRACK or SDR++.
 
-The post-0.6.1 development build adds private ABI 0.8 modules for RTL-SDR,
-Airspy R2, Airspy HF+, LimeSDR, ADALM-Pluto and USRP/UHD. Hardware controls are
-shown only when the selected module reports them. The first USRP B100 test
-should use 1 MS/s, then 4 MS/s, with **Total losses** remaining at zero.
+Version 0.7.0 includes private ABI 0.8 modules for SDRplay, RTL-SDR, Airspy R2,
+Airspy HF+, LimeSDR, ADALM-Pluto and USRP/UHD. Hardware controls are shown only
+when the selected module reports them.
 
-The 0.6.1 package includes only the `SoapySDRPlay3` hardware module. SDRplay
-receivers are therefore the only hardware supported out of the box by this
-installer. RTL-SDR, USRP/UHD, Airspy, HackRF or LimeSDR requires a compatible
-Soapy module to be added and qualified inside SDRbridge's private runtime;
-modules from the system-wide PothosSDR installation are not loaded.
+Before starting SDRbridge, install and validate the manufacturer's driver,
+API, firmware and hardware images. SDRbridge does not install or modify that
+vendor stack. Modules from the system-wide PothosSDR installation are not
+loaded into SDRbridge's private runtime.
 
 ## LAN UDP destinations
 
@@ -116,5 +123,6 @@ warranty. Authors: Stéphane REY F1TJJ and Philippe Borghini F5JWF. Source code
 and issue tracking: https://github.com/stephanerey/SDRbridge.
 
 The software was developed with AI assistance under human direction, review,
-hardware testing, and release validation, using Auroramind's SR Method 4.1:
-https://github.com/syl2042/Aurora_SR_method_codex_pack.
+hardware testing, and release validation, using
+[Auroramind](https://www.auroramind.fr/)'s
+[SR Method 4.1](https://github.com/syl2042/Aurora_SR_method_codex_pack).

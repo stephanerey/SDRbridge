@@ -53,6 +53,75 @@ def _ring_reader_process(descriptor, ready, result):
 
 
 class CoreLifecycleTests(unittest.TestCase):
+    def test_device_switch_clears_an_incompatible_wire_transport(self):
+        source = SimulatedSource(block_samples=256)
+        device_id = source.enumerate()[0].device_id
+        result = SDRBridge._config_for_device(
+            source,
+            device_id,
+            RadioConfig(wire_format="sc8"),
+        )
+        self.assertIsNone(result.wire_format)
+
+    def test_wire_transport_change_restarts_source_stream(self):
+        class CountingSource(SimulatedSource):
+            def __init__(self):
+                super().__init__(block_samples=256)
+                self.starts = 0
+                self.stops = 0
+
+            def start(self, *args, **kwargs):
+                self.starts += 1
+                return super().start(*args, **kwargs)
+
+            def stop(self):
+                self.stops += 1
+                return super().stop()
+
+        source = CountingSource()
+        bridge = SDRBridge(source, block_samples=256, slots=8)
+        try:
+            bridge.start()
+            updated = bridge.apply_config(bridge.config.revision, {"wire_format": "sc8"})
+            self.assertEqual(updated.wire_format, "sc8")
+            self.assertEqual(source.starts, 2)
+            self.assertEqual(source.stops, 1)
+            self.assertTrue(bridge.running)
+        finally:
+            bridge.close()
+
+    def test_soapy_style_rate_change_reopens_device_before_reconfigure(self):
+        class ReopenRequiredSource(SimulatedSource):
+            reopen_on_stream_reconfigure = True
+
+            def __init__(self):
+                super().__init__(block_samples=32768)
+                self.opens = 0
+                self.closes = 0
+
+            def open(self, device_id=SimulatedSource.DEVICE_ID):
+                self.opens += 1
+                return super().open(device_id)
+
+            def close(self):
+                self.closes += 1
+                return super().close()
+
+        source = ReopenRequiredSource()
+        bridge = SDRBridge(source, block_samples=32768, slots=8)
+        try:
+            bridge.start()
+            updated = bridge.apply_config(
+                bridge.config.revision,
+                {"sample_rate_sps": 10_666_667, "bandwidth_hz": 10_666_667},
+            )
+            self.assertEqual(updated.sample_rate_sps, 10_666_667)
+            self.assertGreaterEqual(source.opens, 2)
+            self.assertGreaterEqual(source.closes, 1)
+            self.assertTrue(bridge.running)
+        finally:
+            bridge.close()
+
     def test_master_dispatch_is_not_blocked_by_slow_client_dsp(self):
         bridge = SDRBridge(
             SimulatedSource(block_samples=4096),
@@ -60,6 +129,7 @@ class CoreLifecycleTests(unittest.TestCase):
             block_samples=4096,
             slots=16,
             source_queue_blocks=16,
+            dsp_queue_blocks=24,
         )
         original_process = bridge._pipelines.process
 
@@ -82,6 +152,48 @@ class CoreLifecycleTests(unittest.TestCase):
             self.assertEqual(bridge.blocks_written, 6)
             self.assertLess(bridge.dsp_blocks_processed, bridge.blocks_written)
             self.assertEqual(bridge.source_queue_drops, 0)
+            self.assertEqual(bridge.status()["source_queue_capacity"], 16)
+            self.assertEqual(bridge.status()["dsp_queue_capacity"], 24)
+        finally:
+            bridge._stop_dispatcher()
+            bridge.close()
+
+    def test_sc8_source_payload_is_widened_by_dispatcher_before_dsp(self):
+        bridge = SDRBridge(
+            SimulatedSource(block_samples=8),
+            RadioConfig(sample_rate_sps=16_000_000, bandwidth_hz=8_000_000),
+            block_samples=8,
+            slots=8,
+        )
+        received = []
+        released = []
+        ready = threading.Event()
+
+        def observe(block):
+            received.append(np.frombuffer(block.payload, dtype="<i2").copy())
+            ready.set()
+
+        bridge._pipelines.process = observe
+        try:
+            bridge._start_dispatcher()
+            raw = np.column_stack((
+                np.arange(8, dtype=np.int8),
+                -np.arange(8, dtype=np.int8),
+            ))
+            bridge._on_source_chunk(SourceChunk(
+                memoryview(raw).cast("B"), 8, 0, time.monotonic_ns(),
+                TimeDomain.HOST_MONOTONIC, TimestampOrigin.HOST_OBSERVATION,
+                payload_format="CS8",
+                release=released.append,
+                release_token=raw,
+            ))
+            self.assertTrue(ready.wait(1.0))
+            self.assertEqual(len(released), 1)
+            self.assertIs(released[0], raw)
+            np.testing.assert_array_equal(
+                received[0].reshape(-1, 2)[:, 0],
+                np.arange(8, dtype=np.int16) * 256,
+            )
         finally:
             bridge._stop_dispatcher()
             bridge.close()
@@ -312,6 +424,11 @@ class DSPTests(unittest.TestCase):
         whole_resampler = StreamingRationalResampler(10_000_000, 96_000)
         self.assertIsNotNone(whole_resampler._integer_stage)
         self.assertIsNotNone(whole_resampler._final_stage)
+        self.assertIsNotNone(whole_resampler._integer_stage._fft_taps)
+        self.assertGreaterEqual(
+            whole_resampler._integer_stage.characterization.stopband_attenuation_db,
+            80.0,
+        )
         whole = whole_resampler.process(data)
         streaming = StreamingRationalResampler(10_000_000, 96_000)
         parts = []
@@ -440,8 +557,13 @@ class DSPTests(unittest.TestCase):
             self.assertEqual(outputs_4m[-1].sample_rate_sps, 4_000_000)
             self.assertEqual(outputs_96k[-1].sample_rate_sps, 96_000)
             snapshots = {item["output_rate_sps"]: item for item in pool.snapshot()}
-            self.assertEqual(snapshots[4_000_000]["parallel_workers"], 2)
+            # The root runs in the bridge DSP worker; only its child owns an
+            # additional queue/thread. This avoids root-queue loss at high
+            # source rates while retaining a multicore cascade.
+            self.assertEqual(pool._parallel_queue_blocks, 256)
+            self.assertEqual(snapshots[4_000_000]["parallel_workers"], 1)
             self.assertEqual(snapshots[4_000_000]["parallel_root_rate_sps"], 4_000_000)
+            self.assertEqual(snapshots[4_000_000]["parallel_queue_drops"], 0)
             self.assertEqual(snapshots[96_000]["parallel_root_rate_sps"], 4_000_000)
             self.assertEqual(snapshots[96_000]["parallel_queue_drops"], 0)
         finally:

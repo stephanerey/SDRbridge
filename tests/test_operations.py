@@ -92,6 +92,21 @@ class ConfigTests(unittest.TestCase):
             _, loaded = load_app_config(path)
             self.assertEqual(loaded["udp_destinations"], config["udp_destinations"])
 
+    def test_high_hardware_rate_and_wire_format_round_trip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "app.json"
+            config = json.loads(json.dumps(DEFAULT_CONFIG))
+            config["radio"].update({
+                "sample_rate_sps": 61_440_000,
+                "bandwidth_hz": 56_000_000,
+                "wire_format": "sc8",
+            })
+            save_app_config(path, config)
+            _, loaded = load_app_config(path)
+            self.assertEqual(loaded["radio"]["sample_rate_sps"], 61_440_000)
+            self.assertEqual(loaded["radio"]["bandwidth_hz"], 56_000_000)
+            self.assertEqual(loaded["radio"]["wire_format"], "sc8")
+
     def test_iq_file_and_udp_per_destination_cli_options(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "app.json"

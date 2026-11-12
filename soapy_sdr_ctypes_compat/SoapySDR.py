@@ -19,6 +19,7 @@ SOAPY_SDR_TX = 0
 SOAPY_SDR_RX = 1
 SOAPY_SDR_CF32 = "CF32"
 SOAPY_SDR_CS16 = "CS16"
+SOAPY_SDR_CS8 = "CS8"
 SOAPY_SDR_TIMEOUT = -1
 SOAPY_SDR_STREAM_ERROR = -2
 SOAPY_SDR_CORRUPTION = -3
@@ -211,7 +212,12 @@ _lib.SoapySDRDevice_getSampleRateRange.argtypes = [ctypes.c_void_p, ctypes.c_int
 _lib.SoapySDRDevice_getSampleRateRange.restype = ctypes.POINTER(_Range)
 _lib.SoapySDRDevice_getSettingInfo.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t)]
 _lib.SoapySDRDevice_getSettingInfo.restype = ctypes.POINTER(_ArgInfo)
+_lib.SoapySDRDevice_getStreamArgsInfo.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
+_lib.SoapySDRDevice_getStreamArgsInfo.restype = ctypes.POINTER(_ArgInfo)
 _lib.SoapySDRArgInfoList_clear.argtypes = [ctypes.POINTER(_ArgInfo), ctypes.c_size_t]
+_lib.SoapySDRKwargs_fromString.argtypes = [ctypes.c_char_p]
+_lib.SoapySDRKwargs_fromString.restype = _Kwargs
+_lib.SoapySDRKwargs_clear.argtypes = [ctypes.POINTER(_Kwargs)]
 
 _lib.SoapySDRDevice_setAntenna.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.c_char_p]
 _lib.SoapySDRDevice_setGainMode.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.c_bool]
@@ -245,11 +251,20 @@ _lib.SoapySDRDevice_listBandwidths.restype = ctypes.POINTER(ctypes.c_double)
 _lib.SoapySDRDevice_getBandwidthRange.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
 _lib.SoapySDRDevice_getBandwidthRange.restype = ctypes.POINTER(_Range)
 
-_lib.SoapySDRDevice_setupStream.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p]
+_lib.SoapySDRDevice_setupStream.argtypes = [
+    ctypes.c_void_p,
+    ctypes.c_int,
+    ctypes.c_char_p,
+    ctypes.POINTER(ctypes.c_size_t),
+    ctypes.c_size_t,
+    ctypes.POINTER(_Kwargs),
+]
 _lib.SoapySDRDevice_setupStream.restype = ctypes.c_void_p
 _lib.SoapySDRDevice_activateStream.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_longlong, ctypes.c_size_t]
 _lib.SoapySDRDevice_deactivateStream.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_longlong]
 _lib.SoapySDRDevice_closeStream.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+_lib.SoapySDRDevice_getStreamMTU.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+_lib.SoapySDRDevice_getStreamMTU.restype = ctypes.c_size_t
 _lib.SoapySDRDevice_readStream.argtypes = [
     ctypes.c_void_p,
     ctypes.c_void_p,
@@ -278,6 +293,30 @@ def _string_list(func: Any, *args: Any) -> list[str]:
     if result:
         holder = ctypes.pointer(result)
         _lib.SoapySDRStrings_clear(holder, length.value)
+    return values
+
+
+def _arg_info_list(func: Any, *args: Any) -> list[ArgInfo]:
+    length = ctypes.c_size_t()
+    result = func(*args, ctypes.byref(length))
+    values: list[ArgInfo] = []
+    if result:
+        for index in range(length.value):
+            entry = result[index]
+            values.append(
+                ArgInfo(
+                    key=_decode(entry.key),
+                    value=_decode(entry.value),
+                    name=_decode(entry.name),
+                    description=_decode(entry.description),
+                    units=_decode(entry.units),
+                    type=int(entry.type),
+                    range=(entry.range.minimum, entry.range.maximum, entry.range.step),
+                    options=[_decode(entry.options[i]) for i in range(entry.numOptions)] if entry.options else [],
+                    optionNames=[_decode(entry.optionNames[i]) for i in range(entry.numOptions)] if entry.optionNames else [],
+                )
+            )
+        _lib.SoapySDRArgInfoList_clear(result, length.value)
     return values
 
 
@@ -371,27 +410,15 @@ class Device:
         return values
 
     def getSettingInfo(self) -> list[ArgInfo]:
-        length = ctypes.c_size_t()
-        result = _lib.SoapySDRDevice_getSettingInfo(self._device, ctypes.byref(length))
-        values: list[ArgInfo] = []
-        if result:
-            for index in range(length.value):
-                entry = result[index]
-                values.append(
-                    ArgInfo(
-                        key=_decode(entry.key),
-                        value=_decode(entry.value),
-                        name=_decode(entry.name),
-                        description=_decode(entry.description),
-                        units=_decode(entry.units),
-                        type=int(entry.type),
-                        range=(entry.range.minimum, entry.range.maximum, entry.range.step),
-                        options=[_decode(entry.options[i]) for i in range(entry.numOptions)] if entry.options else [],
-                        optionNames=[_decode(entry.optionNames[i]) for i in range(entry.numOptions)] if entry.optionNames else [],
-                    )
-                )
-            _lib.SoapySDRArgInfoList_clear(result, length.value)
-        return values
+        return _arg_info_list(_lib.SoapySDRDevice_getSettingInfo, self._device)
+
+    def getStreamArgsInfo(self, direction: int, channel: int) -> list[ArgInfo]:
+        return _arg_info_list(
+            _lib.SoapySDRDevice_getStreamArgsInfo,
+            self._device,
+            direction,
+            channel,
+        )
 
     def writeSetting(self, key: str, value: str) -> int:
         return _check(_lib.SoapySDRDevice_writeSetting(self._device, key.encode(), str(value).encode()))
@@ -471,10 +498,27 @@ class Device:
         return values
 
     def setupStream(self, direction: int, fmt: str, channels: Any = None, args: Any = None) -> ctypes.c_void_p:
-        stream = _lib.SoapySDRDevice_setupStream(self._device, direction, str(fmt).encode(), None, 0, None)
-        if not stream:
-            raise RuntimeError(_last_error())
-        return stream
+        channel_values = tuple(int(value) for value in (channels or ()))
+        channel_array = (
+            (ctypes.c_size_t * len(channel_values))(*channel_values)
+            if channel_values else None
+        )
+        stream_args = _lib.SoapySDRKwargs_fromString(_markup(args)) if args else None
+        try:
+            stream = _lib.SoapySDRDevice_setupStream(
+                self._device,
+                direction,
+                str(fmt).encode(),
+                channel_array,
+                len(channel_values),
+                ctypes.byref(stream_args) if stream_args is not None else None,
+            )
+            if not stream:
+                raise RuntimeError(_last_error())
+            return stream
+        finally:
+            if stream_args is not None:
+                _lib.SoapySDRKwargs_clear(ctypes.byref(stream_args))
 
     def activateStream(self, stream: ctypes.c_void_p, flags: int = 0, timeNs: int = 0, numElems: int = 0) -> int:
         return _check(_lib.SoapySDRDevice_activateStream(self._device, stream, flags, timeNs, numElems))
@@ -484,6 +528,9 @@ class Device:
 
     def closeStream(self, stream: ctypes.c_void_p) -> int:
         return _check(_lib.SoapySDRDevice_closeStream(self._device, stream))
+
+    def getStreamMTU(self, stream: ctypes.c_void_p) -> int:
+        return int(_lib.SoapySDRDevice_getStreamMTU(self._device, stream))
 
     def readStream(self, stream: ctypes.c_void_p, buffs: list[Any], numElems: int, timeoutUs: int = 100000) -> StreamResult:
         ptrs = (ctypes.c_void_p * len(buffs))()

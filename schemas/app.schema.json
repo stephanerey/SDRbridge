@@ -23,12 +23,13 @@
       "required": ["center_frequency_hz", "sample_rate_sps", "bandwidth_hz", "gain_reduction_db", "agc_enabled"],
       "properties": {
         "center_frequency_hz": {"type": "integer", "minimum": 1000, "maximum": 999999999999},
-        "sample_rate_sps": {"type": "integer", "minimum": 1, "maximum": 20000000},
-        "bandwidth_hz": {"type": "integer", "minimum": 1, "maximum": 20000000},
+        "sample_rate_sps": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "bandwidth_hz": {"type": "integer", "minimum": 1, "maximum": 4294967295},
         "gain_reduction_db": {"type": "integer", "minimum": 0, "maximum": 100},
         "agc_enabled": {"type": "boolean"},
         "antenna": {"type": ["string", "null"]},
-        "gains": {"type": "object", "additionalProperties": {"type": "number"}}
+        "gains": {"type": "object", "additionalProperties": {"type": "number"}},
+        "wire_format": {"type": ["string", "null"], "minLength": 1, "maxLength": 32}
       },
       "additionalProperties": false
     },
@@ -53,6 +54,7 @@
         "ring_slots": {"type": "integer", "minimum": 4, "maximum": 4096},
         "block_samples": {"type": "integer", "minimum": 1, "maximum": 1048576},
         "source_queue_blocks": {"type": "integer", "minimum": 4, "maximum": 4096},
+        "dsp_queue_blocks": {"type": "integer", "minimum": 4, "maximum": 4096},
         "max_clients": {"type": ["integer", "null"], "minimum": 1}
       },
       "additionalProperties": false
@@ -71,7 +73,7 @@
             "properties": {
               "endpoint": {"type": "string", "pattern": "^[^:]+:[0-9]+$"},
               "transport": {"enum": ["sdbu_v2", "sdrpp_raw_cs16", "qmap_linrad"]},
-              "sample_rate_sps": {"type": "integer", "minimum": 1, "maximum": 20000000},
+              "sample_rate_sps": {"type": "integer", "minimum": 1, "maximum": 4294967295},
               "datagram_bytes": {"type": "integer", "minimum": 256, "maximum": 65507},
               "queue_blocks": {"type": "integer", "minimum": 4, "maximum": 4096}
             },

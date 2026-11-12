@@ -27,6 +27,8 @@ $schemas = Join-Path $project 'schemas'
 $soapyCompat = Join-Path $project 'soapy_sdr_ctypes_compat\SoapySDR.py'
 $helpFr = Join-Path $project 'docs\HELP_FR.md'
 $helpEn = Join-Path $project 'docs\HELP_EN.md'
+$hardwareFr = Join-Path $project 'docs\HARDWARE_COMPATIBILITY_FR.md'
+$hardwareEn = Join-Path $project 'docs\HARDWARE_COMPATIBILITY.md'
 $license = Join-Path $project 'LICENSE'
 $notices = Join-Path $project 'THIRD_PARTY_NOTICES.md'
 $appIcon = Join-Path $project 'assets\branding\sdrbridge.ico'
@@ -119,7 +121,7 @@ Copy-Item -LiteralPath (Join-Path $project 'clients\antrack\SoapySDR.py') -Desti
 Copy-Item -LiteralPath (Join-Path $project 'clients\antrack\sitecustomize.py') -Destination (Join-Path $connectors 'ANTRACK') -Force
 Copy-Item -LiteralPath (Join-Path $project 'clients\antrack\install_antrack_bridge.ps1') -Destination (Join-Path $connectors 'ANTRACK') -Force
 Copy-Item -LiteralPath (Join-Path $project 'docs\CLIENT_SETUP.md') -Destination $release -Force
-Copy-Item -LiteralPath $helpFr,$helpEn,$license,$notices,(Join-Path $project 'AUTHORS.md'),(Join-Path $project 'COPYRIGHT') -Destination $release -Force
+Copy-Item -LiteralPath $helpFr,$helpEn,$hardwareFr,$hardwareEn,$license,$notices,(Join-Path $project 'AUTHORS.md'),(Join-Path $project 'COPYRIGHT') -Destination $release -Force
 New-Item -ItemType Directory -Force (Join-Path $release 'licenses') | Out-Null
 Copy-Item -LiteralPath (Join-Path $project 'build-final\dependencies\src\SoapySDR\LICENSE_1_0.txt') -Destination (Join-Path $release 'licenses\SoapySDR-BSL-1.0.txt') -Force
 Copy-Item -LiteralPath (Join-Path $project 'build-final\dependencies\src\SoapySDRPlay3\LICENSE.txt') -Destination (Join-Path $release 'licenses\SoapySDRPlay3-MIT.txt') -Force

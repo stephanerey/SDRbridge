@@ -6,7 +6,7 @@
 
 SDRbridge est un répartiteur RX pour Windows : il ouvre une seule source SDR, publie son flux IQ et permet à plusieurs applications de réception de l’utiliser simultanément sans leur donner le contrôle du matériel.
 
-La version de développement 0.7.0.dev2 ajoute les modules de réception SoapySDR génériques isolés aux fonctions de la version 0.6.1. Chaque destination UDP peut recevoir son propre débit effectif. QMAP 0.6 conserve son flux Linrad dédié à 96 kS/s, simultanément avec SDR++.
+La version 0.7.0 ajoute les modules de réception SoapySDR génériques isolés, le choix automatique du transport IQ selon le débit, un chemin hôte SC8 de bout en bout à haut débit, la réouverture sûre du périphérique lors des changements de débit à chaud, une cascade DSP haut débit accélérée par FFT et des réserves d'ordonnancement accrues. Chaque destination UDP peut recevoir son propre débit effectif. QMAP 0.6 conserve son flux Linrad dédié à 96 kS/s, simultanément avec SDR++.
 
 ![HDSDR, SDRuno, SDR++, QMAP et SDRbridge partageant le même flux RX](docs/assets/sdrbridge-06-full-stack.png)
 
@@ -38,47 +38,25 @@ Les applications clientes sont en lecture seule. Changer une fréquence dans SDR
 
 ## Compatibilité avec les récepteurs SDR
 
-| Récepteur | Chemin prévu | État vérifié |
-|---|---|---|
-| SDRplay RSP1A | SoapySDRPlay3 privé | RX réel vérifié à 10 MS/s, avec sorties 4 MS/s + QMAP sans perte |
-| SDRplay RSPdx | backend natif SDRplay ou SoapySDR | RX réel vérifié à 2 MS/s |
-| Clone RSP1 / MSI Panadapter | SoapySDRPlay | RX réel vérifié seul et simultanément avec le RSPdx natif |
-| RTL-SDR (E4000/R820T) | backend SoapySDR avec `SoapyRTLSDR` | module privé ABI 0.8 chargé ; qualification matérielle à faire |
-| Airspy R2 | backend SoapySDR avec `SoapyAirspy` | module privé ABI 0.8 chargé ; qualification matérielle à faire |
-| Airspy HF+ | backend SoapySDR avec `SoapyAirspyHF` | module privé ABI 0.8 chargé ; qualification matérielle à faire |
-| LimeSDR Mini | backend SoapySDR avec `SoapyLMS7` | module privé ABI 0.8 chargé ; qualification matérielle à faire |
-| ADALM-Pluto | backend SoapySDR avec `SoapyPlutoSDR` | module privé ABI 0.8 chargé ; qualification matérielle à faire |
-| Ettus USRP B100 | backend SoapySDR avec `SoapyUHD` | détecté et RX réel établi ; qualification des contrôles/débits 0.7.0.dev2 à terminer |
-| Autres récepteurs SoapySDR | module privé ABI 0.8 correspondant | chemin RX générique implémenté ; module et matériel à qualifier |
+SDRbridge construit ses contrôles à partir des capacités exposées par le
+récepteur SoapySDR sélectionné. Il ne contient aucune table de contrôles par
+modèle. L'installateur 0.7.0 fournit des modules de réception isolés pour
+SDRplay, RTL-SDR, Airspy, Airspy HF+, LimeSDR, ADALM-Pluto et UHD/USRP.
 
-L'installateur stable 0.6.1 embarque uniquement le module matériel
-`SoapySDRPlay3`. L'installateur de validation 0.7.0.dev2 ajoute les modules
-privés isolés pour RTL-SDR, Airspy, Airspy HF+, LimeSDR, ADALM-Pluto et
-USRP/UHD. La pile PothosSDR globale du PC n'est volontairement pas chargée.
+L'utilisateur reste responsable de l'installation et de la validation du
+pilote, de l'API, du firmware et des images matérielles du constructeur avant
+de démarrer SDRbridge. SDRbridge ne remplace ni ne modifie cette pile. La seule
+présence d'une factory Soapy ne prouve pas que le récepteur physique fonctionne.
 
-La branche de développement postérieure à 0.6.1 construit maintenant des
-modules ABI 0.8 isolés pour RTL-SDR, Airspy, Airspy HF+, LimeSDR et
-ADALM-Pluto et USRP/UHD. Elle accepte aussi tout autre récepteur RX exposé par un module
-Soapy compatible et construit les contrôles à partir des capacités réellement
-annoncées par le matériel. Le répertoire Pothos `modules0.8` n'est jamais
-chargé. Consultez la [procédure de qualification du matériel Soapy
+Consultez la [matrice de validation matérielle](docs/HARDWARE_COMPATIBILITY_FR.md),
+mise à jour au fil des essais, ainsi que la [procédure de qualification
 générique](docs/verification/GENERIC_SOAPY_VALIDATION.md).
-
-Pour un Ettus B100, SDRbridge utilise directement le format CS16 et propose
-donc au maximum 8 MS/s. La longue liste de bandes passantes UHD du daughterboard
-est volontairement masquée : elle décrit le frontend RF et non la largeur IQ.
-La largeur IQ suit le débit sélectionné et le contrôle `ADC-pga` est écrit puis
-relu via UHD.
-
-Une clé RTL2832 n’est donc **pas encore qualifiée avec SDRbridge**. Elle nécessite au minimum le pilote WinUSB adapté et l'ajout du module `SoapyRTLSDR` compatible avec le runtime privé. Le périphérique doit ensuite apparaître dans la liste de la page **Radio**.
-
-Sur la machine de développement, PothosSDR expose bien la factory `rtlsdr`, mais aucune clé RTL2832 n’était connectée pendant cette vérification. Cette présence logicielle ne constitue pas une preuve de réception matérielle.
 
 ## Installer SDRbridge
 
 ### Installation simple pour un utilisateur final
 
-La version courante est la **[v0.6.1](https://github.com/stephanerey/SDRbridge/releases/tag/v0.6.1)**. L'installateur `SDRbridge_Setup_0.6.1.exe` est fourni comme fichier joint à cette release GitHub.
+La version courante est la **[v0.7.0](https://github.com/stephanerey/SDRbridge/releases/tag/v0.7.0)**. L'installateur `SDRbridge_Setup_0.7.0.exe` est fourni comme fichier joint à cette release GitHub.
 
 ## Licence
 
@@ -96,7 +74,8 @@ numéro de version.
 SDRbridge a été développé avec l'assistance d'outils d'intelligence
 artificielle, sous direction humaine, avec revue du code, essais matériels et
 validation des versions. Le projet a utilisé la
-[SR Method 4.1 d'Auroramind](https://github.com/syl2042/Aurora_SR_method_codex_pack)
+[SR Method 4.1](https://github.com/syl2042/Aurora_SR_method_codex_pack)
+d'[Auroramind](https://www.auroramind.fr/)
 pour structurer les exigences, les passes d'implémentation, les preuves et les
 vérifications proportionnées aux risques. L'assistance IA ne remplace pas les
 tests automatisés et les qualifications sur récepteurs réels documentés dans ce
@@ -104,7 +83,7 @@ dépôt.
 
 **`SDR_Bridge.exe` ne doit pas être copié seul.** Le build actuel est une application portable « en dossier » : l’exécutable dépend des DLL et du répertoire `_internal` placés à côté de lui. Deux distributions sont donc possibles :
 
-- recommandée : le fichier unique `SDRbridge_Setup_0.6.1.exe` après publication de la release ;
+- recommandée : le fichier unique `SDRbridge_Setup_0.7.0.exe` après publication de la release ;
 - portable : une archive ZIP contenant le dossier `SDR_Bridge` complet, à extraire sans déplacer l’exécutable hors de ce dossier.
 
 Pour utiliser un RSP, le pilote et l’API SDRplay officiels **3.15** doivent être installés sur le PC. Python, Qt, SoapySDR et SoapySDRPlay3 sont inclus dans SDRbridge : PothosSDR n'est pas requis. Les connecteurs SDR++ et HDSDR s’installent ensuite avec les procédures dédiées plus bas.
@@ -142,12 +121,12 @@ py -3.12 -m venv .venv
 .\packaging\build_exe.ps1
 ```
 
-Le script lit la version dans `pyproject.toml`, construit la pile Soapy privée, compile les composants natifs x64/Win32 et place le résultat dans `release-v0.6` :
+Le script lit la version dans `pyproject.toml`, construit la pile Soapy privée, compile les composants natifs x64/Win32 et place le résultat dans `release-v0.7` :
 
-- `release-v0.6\SDR_Bridge\SDR_Bridge.exe` : application portable ;
-- `release-v0.6\SDR_Bridge_Client` et `SDR_Bridge_Native_Client` : clients de diagnostic ;
-- `release-v0.6\Connectors` : connecteurs SDR++, HDSDR et ANTRACK, avec leurs scripts d’installation ;
-- `release-v0.6\installer\SDRbridge_Setup_0.6.1.exe` : installateur créé si Inno Setup 6 est présent.
+- `release-v0.7\SDR_Bridge\SDR_Bridge.exe` : application portable ;
+- `release-v0.7\SDR_Bridge_Client` et `SDR_Bridge_Native_Client` : clients de diagnostic ;
+- `release-v0.7\Connectors` : connecteurs SDR++, HDSDR et ANTRACK, avec leurs scripts d’installation ;
+- `release-v0.7\installer\SDRbridge_Setup_0.7.0.exe` : installateur créé si Inno Setup 6 est présent.
 
 `packaging\build_soapy_runtime.ps1` peut aussi être exécuté seul sur un PC de
 test SDR générique. Il télécharge un SDK Boost 1.75 épinglé après vérification
@@ -155,20 +134,20 @@ de son SHA-256 et construit les modules privés ABI 0.8. Si le SDK SDRplay est
 absent, seul le module SDRplay est omis ; UHD, RTL-SDR, Airspy, Lime et Pluto
 restent constructibles.
 
-L’application est installée dans le profil utilisateur (`%LOCALAPPDATA%\Programs\SDRbridge`) et ne demande pas de droits administrateur. Pour une distribution portable, copier ou compresser **tout** le dossier `release-v0.6\SDR_Bridge`.
+L’application est installée dans le profil utilisateur (`%LOCALAPPDATA%\Programs\SDRbridge`) et ne demande pas de droits administrateur. Pour une distribution portable, copier ou compresser **tout** le dossier `release-v0.7\SDR_Bridge`.
 
 #### 4. Premier démarrage
 
 Tester d’abord l’application sans matériel :
 
 ```powershell
-.\release-v0.6\SDR_Bridge\SDR_Bridge.exe --source simulated
+.\release-v0.7\SDR_Bridge\SDR_Bridge.exe --source simulated
 ```
 
 Pour le RSPdx avec la configuration fournie :
 
 ```powershell
-.\release-v0.6\SDR_Bridge\SDR_Bridge.exe --config .\config.soapy-sdrpp.json
+.\release-v0.7\SDR_Bridge\SDR_Bridge.exe --config .\config.soapy-sdrpp.json
 ```
 
 Le raccourci créé par l’installateur charge `config.soapy-sdrpp.json` : la liste **Source** contient donc les SDR détectés par Soapy. La réception reste arrêtée jusqu’au clic sur **Start**. Un lancement direct de `SDR_Bridge.exe` sans argument conserve la source simulée comme mode sûr.

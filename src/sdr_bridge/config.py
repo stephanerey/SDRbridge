@@ -30,6 +30,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "agc_enabled": False,
         "antenna": None,
         "gains": {},
+        "wire_format": None,
     },
     "network": {
         "enabled": False,
@@ -40,7 +41,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "token_file": None,
         "mdns": False,
     },
-    "buffers": {"ring_slots": 64, "block_samples": 32768, "source_queue_blocks": 256, "max_clients": None},
+    "buffers": {
+        "ring_slots": 64,
+        "block_samples": 32768,
+        "source_queue_blocks": 256,
+        "dsp_queue_blocks": 1024,
+        "max_clients": None,
+    },
     "auto_connect": False,
     "auto_start": False,
     "udp_destination": None,

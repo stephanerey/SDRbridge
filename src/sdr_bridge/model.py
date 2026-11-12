@@ -2,11 +2,53 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from enum import Enum, IntEnum
+import re
 import time
 from typing import Any, Mapping
 
 
 MAX_CENTER_FREQUENCY_HZ = 999_999_999_999
+# The SDBR/SDBU metadata stores sample rates in an unsigned 32-bit field.
+# This is a protocol bound, not a receiver-family policy.
+MAX_SAMPLE_RATE_SPS = 4_294_967_295
+MAX_BANDWIDTH_HZ = 4_294_967_295
+
+
+def choose_auto_wire_format(
+    formats: tuple[str, ...] | list[str],
+    default: str | None,
+    sample_rate_sps: int,
+    maximum_rate_sps: int | None,
+) -> str | None:
+    """Choose the highest precision likely to fit the advertised throughput.
+
+    Soapy exposes wire formats and sample-rate limits separately. When several
+    integer formats exist, the highest advertised sample rate is assumed to be
+    attainable with the narrowest format; wider formats scale inversely with
+    their component bit width. An explicit operator choice bypasses Auto.
+    """
+    values = tuple(dict.fromkeys(str(value) for value in formats if str(value)))
+    if not values:
+        return None
+    bit_widths = {
+        value: int(match.group(1))
+        for value in values
+        if (match := re.search(r"(\d+)$", value.lower())) is not None
+    }
+    matched_default = next(
+        (value for value in values if default and value.lower() == default.lower()),
+        None,
+    )
+    if not bit_widths or not maximum_rate_sps or maximum_rate_sps <= 0:
+        return matched_default
+    narrowest = min(bit_widths.values())
+    capable = [
+        value for value, bits in bit_widths.items()
+        if maximum_rate_sps * narrowest / bits >= sample_rate_sps
+    ]
+    if capable:
+        return max(capable, key=lambda value: bit_widths[value])
+    return min(bit_widths, key=bit_widths.get)
 
 
 class SampleFormat(str, Enum):
@@ -78,22 +120,28 @@ class RadioConfig:
     gains: Mapping[str, float] = field(default_factory=dict)
     sample_format: SampleFormat = SampleFormat.CS16
     revision: int = 1
+    # Optional Soapy over-the-wire/bus format (for example sc8 or sc16).
+    # None delegates the choice to the hardware driver.
+    wire_format: str | None = None
 
     def validate(self) -> None:
         if not 1_000 <= self.center_frequency_hz <= MAX_CENTER_FREQUENCY_HZ:
             raise ValueError("center_frequency_hz out of supported bridge range")
-        if not 1 <= self.sample_rate_sps <= 20_000_000:
+        if not 1 <= self.sample_rate_sps <= MAX_SAMPLE_RATE_SPS:
             raise ValueError("sample_rate_sps out of supported bridge range")
         # The tuner/IF filter is a hardware setting distinct from the complex
         # IQ sample rate. Some receivers expose only discrete filters (the
         # RSP1A jumps from 1.536 to 5 MHz), so the closest useful filter may be
         # slightly wider than the requested sample rate.
-        if not 1 <= self.bandwidth_hz <= 20_000_000:
+        if not 1 <= self.bandwidth_hz <= MAX_BANDWIDTH_HZ:
             raise ValueError("bandwidth_hz out of supported bridge range")
         if not 0 <= self.gain_reduction_db <= 100:
             raise ValueError("gain_reduction_db out of range")
         if self.revision < 1:
             raise ValueError("revision must be positive")
+        if self.wire_format is not None:
+            if not isinstance(self.wire_format, str) or not 1 <= len(self.wire_format) <= 32:
+                raise ValueError("wire_format must be null or a 1-32 character string")
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -133,6 +181,8 @@ class DeviceCapabilities:
     bandwidth_ranges_hz: tuple[tuple[float, float, float], ...] = ()
     gain_values: Mapping[str, float] = field(default_factory=dict)
     gain_steps: Mapping[str, float] = field(default_factory=dict)
+    wire_formats: tuple[str, ...] = ()
+    wire_format_default: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -143,6 +193,8 @@ class DeviceCapabilities:
             "bandwidth_ranges_hz": [list(value) for value in self.bandwidth_ranges_hz],
             "gain_values": dict(self.gain_values),
             "gain_steps": dict(self.gain_steps),
+            "wire_formats": list(self.wire_formats),
+            "wire_format_default": self.wire_format_default,
         }
 
 

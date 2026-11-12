@@ -20,7 +20,7 @@ from .dsp import payload_to_complex
 from .diagnostics import export_diagnostic_bundle
 from .frequency_control import FrequencyControlWidget
 from .gui_theme import DARK_STYLESHEET, SDRBridgeProxyStyle
-from .model import MAX_CENTER_FREQUENCY_HZ, LifecycleState
+from .model import choose_auto_wire_format, MAX_CENTER_FREQUENCY_HZ, MAX_SAMPLE_RATE_SPS, LifecycleState
 from .recording import CaptureFormat
 from .rf_profiles import RFProfileSet, RFRule
 
@@ -41,6 +41,9 @@ TEXT = {
         "bandwidth": "Bandwidth", "bandwidth_auto": "Auto — {value:.3f} MHz",
         "bandwidth_unavailable": "Not adjustable by this receiver",
         "bandwidth_tip": "Hardware tuner/IF filter. Auto selects the hardware value closest to the IQ sampling rate.",
+        "wire_format": "IQ transport", "wire_format_auto": "Auto (driver default)",
+        "wire_format_auto_effective": "Auto — {value}",
+        "wire_format_tip": "Native sample format used between the SDR and the computer. Only formats exposed by the Soapy driver are listed; client streams remain CS16.",
         "antenna": "Antenna", "if_gain": "IF gain", "rf_gain": "RF gain",
         "auto_rf": "Auto RF profile", "configure_rf": "Configure RF rules →", "rf_analysis": "RF ANALYSIS",
         "spectrum": "Spectrum", "waterfall": "Waterfall", "split": "Split", "diagnostics": "Diagnostics…",
@@ -81,7 +84,7 @@ TEXT = {
         "reduction_value": "{value:g} dB red.", "lna_state_value": "state {value:g}",
         "reported_losses": "{count} reported", "consumers_count": "{count} consumers",
         "compact_stats": "{count} consumers | drops {drops}",
-        "status_line": "{rate:.3f} MS/s | processing drops {drops} | errors {errors}",
+        "status_line": "{rate:.3f} MS/s | losses source {source} / queues {queues} / DSP {dsp} / profiles {profiles} | errors {errors}",
         "local": "Local", "active": "active", "idle": "idle", "streaming": "streaming",
         "capture_active": "Capture active — {bytes} bytes — {file}", "losses_count": "{count} losses",
         "top": "Top", "iq_file": "IQ FILE", "simulation": "SIMULATION", "select_iq_recording": "Select an IQ recording",
@@ -122,6 +125,9 @@ TEXT = {
         "bandwidth": "Bande passante", "bandwidth_auto": "Auto — {value:.3f} MHz",
         "bandwidth_unavailable": "Non réglable par ce récepteur",
         "bandwidth_tip": "Filtre matériel du tuner/IF. Auto choisit la valeur matérielle la plus proche du débit d’échantillonnage IQ.",
+        "wire_format": "Transport IQ", "wire_format_auto": "Auto (défaut du pilote)",
+        "wire_format_auto_effective": "Auto — {value}",
+        "wire_format_tip": "Format natif des échantillons entre le SDR et l’ordinateur. Seuls les formats annoncés par le pilote Soapy sont proposés ; les flux clients restent en CS16.",
         "antenna": "Antenne", "if_gain": "Gain IF", "rf_gain": "Gain RF",
         "auto_rf": "Profil RF automatique", "configure_rf": "Configurer les règles RF →", "rf_analysis": "ANALYSE RF",
         "spectrum": "Spectre", "waterfall": "Cascade", "split": "Partagé", "diagnostics": "Diagnostics…",
@@ -162,7 +168,7 @@ TEXT = {
         "reduction_value": "{value:g} dB réd.", "lna_state_value": "état {value:g}",
         "reported_losses": "{count} déclarée(s)", "consumers_count": "{count} consommateur(s)",
         "compact_stats": "{count} consommateur(s) | pertes {drops}",
-        "status_line": "{rate:.3f} MS/s | pertes de traitement {drops} | erreurs {errors}",
+        "status_line": "{rate:.3f} MS/s | pertes source {source} / files {queues} / DSP {dsp} / profils {profiles} | erreurs {errors}",
         "local": "Local", "active": "actif", "idle": "inactif", "streaming": "en cours",
         "capture_active": "Capture active — {bytes} octets — {file}", "losses_count": "{count} perte(s)",
         "top": "Dessus", "iq_file": "FICHIER IQ", "simulation": "SIMULATION", "select_iq_recording": "Sélectionner un enregistrement IQ",
@@ -639,10 +645,30 @@ class BridgeWindow(QtWidgets.QMainWindow):
         dialog.exec_()
 
     def _open_diagnostics(self) -> None:
-        self.diagnostics_dialog.show(); self.diagnostics_dialog.raise_(); self.diagnostics_dialog.activateWindow()
+        self.diagnostics_dialog.show()
+        # Diagnostics contain the complete hardware capability inventory.
+        # Build that JSON on demand instead of rebuilding the document every
+        # second while the dialog is hidden (large UHD rate inventories can
+        # otherwise add avoidable GUI/GIL jitter to high-rate acquisition).
+        self.refresh()
+        self.diagnostics_dialog.raise_(); self.diagnostics_dialog.activateWindow()
 
     def _copy_diagnostics(self) -> None:
         QtWidgets.QApplication.clipboard().setText(self.diagnostics.toPlainText())
+
+    def _diagnostic_configuration(self, diagnostics: dict) -> dict:
+        """Keep persisted settings distinct from the effective RX state."""
+        saved = getattr(self.runtime, "config", {}) if self.runtime is not None else {}
+        return {
+            "saved": saved,
+            "active": {
+                "source": diagnostics.get("source"),
+                "source_id": diagnostics.get("source_id"),
+                "device_id": diagnostics.get("device_id"),
+                "epoch": diagnostics.get("epoch"),
+                "radio": diagnostics.get("config", self.bridge.config.to_dict()),
+            },
+        }
 
     def _export_diagnostics(self) -> None:
         default_folder = QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.DocumentsLocation)
@@ -656,7 +682,7 @@ class BridgeWindow(QtWidgets.QMainWindow):
         try:
             raw = json.loads(self.diagnostics.toPlainText() or "{}")
             log_path = getattr(self.runtime, "log_path", None) if self.runtime is not None else None
-            configuration = getattr(self.runtime, "config", {}) if self.runtime is not None else {}
+            configuration = self._diagnostic_configuration(raw)
             result = export_diagnostic_bundle(
                 destination,
                 app_version=__version__,
@@ -688,8 +714,11 @@ class BridgeWindow(QtWidgets.QMainWindow):
             self.device_combo.setItemText(picker_index, self._t("browse_iq_source"))
         self.rate_label.setText(self._t("sampling")); self.bandwidth_label.setText(self._t("bandwidth")); self.antenna_label.setText(self._t("antenna"))
         self.bandwidth_label.setToolTip(self._t("bandwidth_tip")); self.bandwidth_combo.setToolTip(self._t("bandwidth_tip"))
+        self.wire_format_label.setText(self._t("wire_format"))
+        self.wire_format_label.setToolTip(self._t("wire_format_tip")); self.wire_format_combo.setToolTip(self._t("wire_format_tip"))
         if self._capabilities:
             self._refresh_bandwidth_combo(int(self.rate_edit.text()), int(self.bandwidth_edit.text()))
+            self._refresh_wire_format_combo(self.wire_format_combo.currentData())
         self.if_gain_label.setText(self._gain_caption(self._primary_gain_names[0], 0)); self.rf_gain_label.setText(self._gain_caption(self._primary_gain_names[1], 1))
         self.if_gain_value.setText(self._gain_value_text(self._primary_gain_names[0], self.if_gain_slider.value()))
         self.rf_gain_value.setText(self._gain_value_text(self._primary_gain_names[1], self.rf_gain_slider.value()))
@@ -957,6 +986,12 @@ class BridgeWindow(QtWidgets.QMainWindow):
         self.extra_gain_labels: dict[str, QtWidgets.QLabel | QtWidgets.QCheckBox] = {}
         options_row = QtWidgets.QHBoxLayout()
         options_row.addWidget(self.agc_check)
+        self.wire_format_label = QtWidgets.QLabel(self._t("wire_format"))
+        self.wire_format_combo = QtWidgets.QComboBox()
+        self.wire_format_combo.setToolTip(self._t("wire_format_tip"))
+        self.wire_format_combo.currentIndexChanged.connect(lambda _index: self._schedule_stream_restart_apply())
+        options_row.addWidget(self.wire_format_label)
+        options_row.addWidget(self.wire_format_combo)
         options_row.addWidget(self.dynamic_container, 1)
         source_layout.addLayout(options_row)
         layout.addWidget(self.receiver_group)
@@ -1074,7 +1109,8 @@ class BridgeWindow(QtWidgets.QMainWindow):
         if value is not None:
             self.rate_edit.setText(str(int(value)))
             self._refresh_bandwidth_combo(int(value))
-            self._schedule_live_apply()
+            self._refresh_wire_format_combo(self.wire_format_combo.currentData())
+            self._schedule_stream_restart_apply()
 
     def _bandwidth_changed(self, index: int) -> None:
         if index < 0:
@@ -1175,6 +1211,7 @@ class BridgeWindow(QtWidgets.QMainWindow):
         self.if_gain_slider.setEnabled(enabled and self._primary_gain_names[0] is not None)
         self.rf_gain_slider.setEnabled(enabled and self._primary_gain_names[1] is not None)
         self.agc_check.setEnabled(enabled and bool(self._capabilities.get("agc_available", False)))
+        self.wire_format_combo.setEnabled(enabled and bool(self._capabilities.get("wire_formats")))
         self.auto_table_check.setEnabled(enabled)
         self.edit_table_button.setEnabled(enabled)
         self.dynamic_container.setEnabled(enabled)
@@ -1259,6 +1296,7 @@ class BridgeWindow(QtWidgets.QMainWindow):
                 rate_values = capabilities.get("sample_rates_sps", ()) or (self.bridge.config.sample_rate_sps,)
                 self._fill_capability_combo(self.rate_combo, rate_values, self.bridge.config.sample_rate_sps, "MHz")
                 self._refresh_bandwidth_combo(self.bridge.config.sample_rate_sps, self.bridge.config.bandwidth_hz)
+                self._refresh_wire_format_combo(self.bridge.config.wire_format)
                 self.antenna_combo.blockSignals(True)
                 self.antenna_combo.clear()
                 for antenna in capabilities.get("antennas", ()):
@@ -1347,6 +1385,38 @@ class BridgeWindow(QtWidgets.QMainWindow):
             index = min(range(len(values)), key=lambda i: abs(values[i] - int(current)))
             combo.setCurrentIndex(index)
         combo.blockSignals(False)
+
+    def _refresh_wire_format_combo(self, current: str | None = None) -> None:
+        """Expose exactly the over-the-wire formats advertised by Soapy."""
+        formats = tuple(str(value) for value in self._capabilities.get("wire_formats", ()) if str(value))
+        visible = bool(formats)
+        self.wire_format_label.setVisible(visible)
+        self.wire_format_combo.setVisible(visible)
+        self.wire_format_combo.blockSignals(True)
+        self.wire_format_combo.clear()
+        maximum_rate = max(
+            (
+                *(int(value) for value in self._capabilities.get("sample_rates_sps", ())),
+                *(int(item[1]) for item in self._capabilities.get("sample_rate_ranges_sps", ())),
+            ),
+            default=0,
+        )
+        automatic = choose_auto_wire_format(
+            formats,
+            self._capabilities.get("wire_format_default"),
+            int(self.rate_edit.text()),
+            maximum_rate,
+        )
+        auto_text = (
+            self._t("wire_format_auto_effective").format(value=automatic.upper())
+            if automatic else self._t("wire_format_auto")
+        )
+        self.wire_format_combo.addItem(auto_text, None)
+        for value in formats:
+            self.wire_format_combo.addItem(value.upper(), value)
+        selected = self.wire_format_combo.findData(current) if current else 0
+        self.wire_format_combo.setCurrentIndex(selected if selected >= 0 else 0)
+        self.wire_format_combo.blockSignals(False)
 
     def _refresh_bandwidth_combo(self, sample_rate_sps: int, current_bandwidth_hz: int | None = None) -> None:
         """Expose hardware filters and select the closest one in Auto mode."""
@@ -1510,7 +1580,7 @@ class BridgeWindow(QtWidgets.QMainWindow):
         self.destination_transport.addItem("QMAP / Linrad 96 kS/s", "qmap_linrad")
         self.destination_transport.currentIndexChanged.connect(self._destination_transport_changed)
         self.destination_rate = QtWidgets.QSpinBox()
-        self.destination_rate.setRange(1, 20_000_000)
+        self.destination_rate.setRange(1, min(MAX_SAMPLE_RATE_SPS, 2_147_483_647))
         self.destination_rate.setSingleStep(1_000)
         self.destination_rate.setValue(self.bridge.config.sample_rate_sps)
         self.destination_rate.setSuffix(" S/s")
@@ -2041,6 +2111,7 @@ class BridgeWindow(QtWidgets.QMainWindow):
             self._config_apply_pending = requested
             return
         self._config_apply_busy = True
+        self._set_hardware_controls_enabled(False)
         self.status_bar.setText(self._t("applying_update"))
 
         def worker(payload: dict) -> None:
@@ -2070,12 +2141,19 @@ class BridgeWindow(QtWidgets.QMainWindow):
             "agc_enabled": self.agc_check.isChecked(),
             "antenna": self.antenna_combo.currentData() or None,
             "gains": gains,
+            "wire_format": self.wire_format_combo.currentData(),
         }
 
     def _schedule_live_apply(self) -> None:
         if not getattr(self, "_live_apply_timer", None):
             return
         self._live_apply_timer.start()
+
+    def _schedule_stream_restart_apply(self) -> None:
+        """Debounce native stream rebuilds more strongly than RF-only edits."""
+        if not getattr(self, "_live_apply_timer", None):
+            return
+        self._live_apply_timer.start(650)
 
     @QtCore.pyqtSlot(object, object)
     def _config_apply_finished(self, result, error) -> None:
@@ -2105,6 +2183,7 @@ class BridgeWindow(QtWidgets.QMainWindow):
             self._config_apply_pending = pending
             return
         self._config_apply_busy = True
+        self._set_hardware_controls_enabled(False)
         def worker(payload: dict) -> None:
             result = None; error = None
             try:
@@ -2238,6 +2317,7 @@ class BridgeWindow(QtWidgets.QMainWindow):
             self.gain_edit.setText(str(cfg["gain_reduction_db"]))
             if self._capabilities:
                 self._refresh_bandwidth_combo(cfg["sample_rate_sps"], cfg["bandwidth_hz"])
+                self._refresh_wire_format_combo(cfg.get("wire_format"))
         self._apply_y_range()
         clients = status["clients"]; self.clients_table.setRowCount(len(clients))
         for row, client in enumerate(clients):
@@ -2313,12 +2393,10 @@ class BridgeWindow(QtWidgets.QMainWindow):
         else:
             self.status_bar.setText(self._t("status_line").format(
                 rate=status["sample_rate_measured"] / 1e6,
-                drops=(
-                    int(status["source_queue_drops"])
-                    + int(status.get("source_losses", 0))
-                    + int(status.get("dsp_queue_drops", 0))
-                    + int(status.get("profile_queue_drops", 0))
-                ),
+                source=int(status.get("source_losses", 0)),
+                queues=int(status["source_queue_drops"]),
+                dsp=int(status.get("dsp_queue_drops", 0)),
+                profiles=int(status.get("profile_queue_drops", 0)),
                 errors=int(status["source_errors"]) + int(status.get("dsp_errors", 0)),
             ))
         self.compact_stats.setText(self._t("compact_stats").format(count=consumer_count, drops=total_losses))
@@ -2345,21 +2423,23 @@ class BridgeWindow(QtWidgets.QMainWindow):
             self.capture_volume_label.setText("0 MiB"); self.capture_rate_label.setText("—")
             self.capture_source_label.setText("—"); self.capture_integrity_label.setText("—")
         self._refresh_rf_rules()
-        diagnostics = {key: status[key] for key in (
-            "state", "source", "source_id", "epoch", "blocks_received", "blocks_written",
-            "source_queue_drops", "source_queue_capacity", "source_queue_high_water", "source_errors",
-            "source_losses",
-            "dispatch_processing_average_ms", "dispatch_processing_max_ms", "dispatch_slow_blocks",
-            "dsp_queue_drops", "dsp_queue_capacity", "dsp_queue_high_water", "dsp_blocks_processed",
-            "dsp_processing_average_ms", "dsp_processing_max_ms", "dsp_slow_blocks", "dsp_errors",
-            "last_error", "pipelines",
-        )}
-        diagnostics["capabilities"] = self._capabilities
-        diagnostics["process_cpu_percent_one_core"] = round(self._process_cpu_percent, 3)
-        diagnostics["process_cpu_core_equivalents"] = round(self._process_cpu_percent / 100.0, 3)
-        diagnostics["logical_cpu_count"] = self._logical_cpu_count
-        diagnostics["log_file"] = str(self.runtime.log_path) if self.runtime is not None and getattr(self.runtime, "log_path", None) else None
-        self.diagnostics.setPlainText(json.dumps(diagnostics, ensure_ascii=False, indent=2))
+        if self.diagnostics_dialog.isVisible():
+            diagnostics = {key: status[key] for key in (
+                "state", "source", "source_id", "device_id", "epoch", "config",
+                "blocks_received", "blocks_written",
+                "source_queue_drops", "source_queue_capacity", "source_queue_high_water", "source_errors",
+                "source_losses", "source_diagnostics",
+                "dispatch_processing_average_ms", "dispatch_processing_max_ms", "dispatch_slow_blocks",
+                "dsp_queue_drops", "dsp_queue_capacity", "dsp_queue_high_water", "dsp_blocks_processed",
+                "dsp_processing_average_ms", "dsp_processing_max_ms", "dsp_slow_blocks", "dsp_errors",
+                "profile_queue_drops", "last_error", "pipelines",
+            )}
+            diagnostics["capabilities"] = self._capabilities
+            diagnostics["process_cpu_percent_one_core"] = round(self._process_cpu_percent, 3)
+            diagnostics["process_cpu_core_equivalents"] = round(self._process_cpu_percent / 100.0, 3)
+            diagnostics["logical_cpu_count"] = self._logical_cpu_count
+            diagnostics["log_file"] = str(self.runtime.log_path) if self.runtime is not None and getattr(self.runtime, "log_path", None) else None
+            self.diagnostics.setPlainText(json.dumps(diagnostics, ensure_ascii=False, indent=2))
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         recorder_active = bool(getattr(self.runtime, "recorder", None))

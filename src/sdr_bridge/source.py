@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 import threading
 import time
@@ -30,6 +30,16 @@ class SourceChunk:
     timestamp_origin: TimestampOrigin
     discontinuity: Discontinuity = Discontinuity.NONE
     lost_samples: int | None = 0
+    # Host payload supplied by the source. The bridge's published rings stay
+    # CS16; SC8 is accepted transiently so a high-rate USB reader can return to
+    # readStream before performing the widening conversion.
+    payload_format: str = "CS16"
+    # A source may transfer ownership of a reusable backing buffer to the
+    # bridge.  The consumer must return the opaque token exactly once after it
+    # has finished reading payload.  Sources that do not opt in keep the
+    # original copy-on-callback contract.
+    release: Callable[[object], None] | None = field(default=None, repr=False, compare=False)
+    release_token: object | None = field(default=None, repr=False, compare=False)
 
 
 BlockCallback = Callable[[SourceChunk], None]

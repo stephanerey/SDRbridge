@@ -10,6 +10,8 @@ import uuid
 from typing import Callable
 from dataclasses import dataclass
 
+import numpy as np
+
 from .model import (
     ClientStats,
     Discontinuity,
@@ -49,6 +51,7 @@ class SDRBridge:
         block_samples: int = 4096,
         slots: int = 64,
         source_queue_blocks: int = 256,
+        dsp_queue_blocks: int = 512,
         max_clients: int | None = None,
         source_id: str = "source-0",
         device_id: str | None = None,
@@ -61,6 +64,8 @@ class SDRBridge:
             raise ValueError("max_clients must be null or positive")
         if source_queue_blocks <= 0:
             raise ValueError("source_queue_blocks must be positive")
+        if dsp_queue_blocks <= 0:
+            raise ValueError("dsp_queue_blocks must be positive")
         self.max_clients = max_clients
         self.source_id = source_id
         self.device_id = device_id
@@ -90,8 +95,9 @@ class SDRBridge:
         self._sequence = 0
         self._first_sample_index = 0
         self._source_queue: queue.Queue[tuple[SourceChunk, RadioConfig, int]] = queue.Queue(maxsize=source_queue_blocks)
-        self._dsp_queue: queue.Queue[IQBlock] = queue.Queue(maxsize=source_queue_blocks)
+        self._dsp_queue: queue.Queue[IQBlock] = queue.Queue(maxsize=dsp_queue_blocks)
         self.source_queue_capacity = int(source_queue_blocks)
+        self.dsp_queue_capacity = int(dsp_queue_blocks)
         self.source_queue_high_water = 0
         self._dispatch_stop = threading.Event()
         self._dispatch_thread: threading.Thread | None = None
@@ -172,6 +178,16 @@ class SDRBridge:
         selected = device_id or self.device_id or self.source.enumerate()[0].device_id
         return self.source.capabilities(selected).to_dict()
 
+    @staticmethod
+    def _config_for_device(source: IQSource, device_id: str, config: RadioConfig) -> RadioConfig:
+        """Drop a device-specific wire choice when the new SDR cannot use it."""
+        if config.wire_format is None:
+            return config
+        formats = source.capabilities(device_id).wire_formats
+        if any(value.lower() == config.wire_format.lower() for value in formats):
+            return config
+        return replace(config, wire_format=None)
+
     def select_device(self, device_id: str) -> None:
         """Switch the selected backend device, preserving RX when possible."""
         with self._command_lock:
@@ -182,7 +198,8 @@ class SDRBridge:
                 self.stop()
             self.source.close()
             self.source.open(device_id)
-            effective = self.source.configure(self.config)
+            request = self._config_for_device(self.source, device_id, self.config)
+            effective = self.source.configure(request)
             with self._lock:
                 self.device_id = device_id
                 self.config = effective
@@ -216,6 +233,7 @@ class SDRBridge:
             )
             try:
                 source.open(device_id)
+                request = self._config_for_device(source, device_id, request)
                 effective = source.configure(request)
                 if effective.sample_format is not self.ring.sample_format:
                     raise ValueError(
@@ -445,8 +463,14 @@ class SDRBridge:
 
     def _on_source_chunk(self, chunk: SourceChunk) -> None:
         # Le callback ne fait qu'une copie possédée et un enqueue borné.
+        if chunk.payload_format not in {"CS8", "CS16"}:
+            if chunk.release is not None:
+                chunk.release(chunk.release_token)
+            self._on_source_error(ValueError(f"unsupported source payload format: {chunk.payload_format}"))
+            return
+        can_transfer = chunk.payload_format == "CS8" and chunk.release is not None
         owned = SourceChunk(
-            payload=memoryview(bytes(chunk.payload)),
+            payload=chunk.payload if can_transfer else memoryview(bytes(chunk.payload)),
             sample_count=chunk.sample_count,
             first_sample_index=chunk.first_sample_index,
             timestamp_ns=chunk.timestamp_ns,
@@ -454,7 +478,12 @@ class SDRBridge:
             timestamp_origin=chunk.timestamp_origin,
             discontinuity=chunk.discontinuity,
             lost_samples=chunk.lost_samples,
+            payload_format=chunk.payload_format,
+            release=chunk.release if can_transfer else None,
+            release_token=chunk.release_token if can_transfer else None,
         )
+        if chunk.release is not None and not can_transfer:
+            chunk.release(chunk.release_token)
         with self._lock:
             if chunk.discontinuity is Discontinuity.REPLAY_SEEK or (
                 chunk.discontinuity is Discontinuity.SOURCE_LOSS and chunk.lost_samples is None
@@ -474,6 +503,8 @@ class SDRBridge:
             with self._lock:
                 self.source_queue_high_water = max(self.source_queue_high_water, depth)
         except queue.Full:
+            if owned.release is not None:
+                owned.release(owned.release_token)
             now = time.monotonic()
             with self._lock:
                 self.source_queue_drops += 1
@@ -529,6 +560,8 @@ class SDRBridge:
             with self._lock:
                 current_epoch = self._epoch
             if epoch != current_epoch:
+                if chunk.release is not None:
+                    chunk.release(chunk.release_token)
                 self._source_queue.task_done()
                 continue
             with self._lock:
@@ -543,6 +576,20 @@ class SDRBridge:
             if drops:
                 discontinuity = Discontinuity.DSP_DROP
                 lost_samples = drops
+            payload = chunk.payload
+            if chunk.payload_format == "CS8":
+                # Keep widening work off the time-sensitive UHD read thread.
+                # Owned SC8 bytes also consume half the queue bandwidth until
+                # immediately before publication to the stable CS16 rings.
+                try:
+                    values = np.frombuffer(
+                        payload, dtype="i1", count=chunk.sample_count * 2
+                    ).astype("<i2")
+                    np.left_shift(values, 8, out=values)
+                    payload = memoryview(values).cast("B")
+                finally:
+                    if chunk.release is not None:
+                        chunk.release(chunk.release_token)
             block = IQBlock(
                 source_id=self.source_id,
                 epoch=epoch,
@@ -558,7 +605,7 @@ class SDRBridge:
                 timestamp_origin=chunk.timestamp_origin,
                 discontinuity=discontinuity,
                 lost_samples=lost_samples,
-                payload=chunk.payload,
+                payload=payload,
             )
             processing_started = time.perf_counter()
             self.ring.write(block)
@@ -595,7 +642,7 @@ class SDRBridge:
                             "epoch": str(epoch),
                             "details": {
                                 "dropped_blocks_total": total_dsp_drops,
-                                "queue_capacity_blocks": self.source_queue_capacity,
+                                "queue_capacity_blocks": self.dsp_queue_capacity,
                             },
                         },
                     )
@@ -631,7 +678,26 @@ class SDRBridge:
                 )
             self._source_queue.task_done()
 
+    @staticmethod
+    def _raise_dsp_thread_priority() -> None:
+        """Reduce long Windows scheduling pauses without starving the GUI."""
+        if os.name != "nt":
+            return
+        try:
+            import ctypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.GetCurrentThread.restype = ctypes.c_void_p
+            kernel32.SetThreadPriority.argtypes = (ctypes.c_void_p, ctypes.c_int)
+            # Match the Soapy RX thread at THREAD_PRIORITY_ABOVE_NORMAL.  The
+            # FFT/SciPy work releases the GIL, so acquisition and DSP can then
+            # progress concurrently on separate CPU cores.
+            kernel32.SetThreadPriority(kernel32.GetCurrentThread(), 1)
+        except Exception:
+            logger.debug("could not raise DSP thread priority", exc_info=True)
+
     def _dsp_loop(self) -> None:
+        self._raise_dsp_thread_priority()
         while not self._dsp_stop.is_set() or not self._dsp_queue.empty():
             try:
                 block = self._dsp_queue.get(timeout=0.05)
@@ -701,11 +767,12 @@ class SDRBridge:
                 # Les réglages de fréquence, gain et options doivent rester
                 # transparents pour le flux.  RECONFIGURING est réservé au
                 # seul cas où le périphérique doit réellement être arrêté
-                # (FS ou bande passante).
+                # (FS, bande passante ou format de transport IQ).
             if isinstance(requested, dict):
                 allowed = {
                     "center_frequency_hz", "sample_rate_sps", "bandwidth_hz",
                     "gain_reduction_db", "agc_enabled", "antenna", "gains", "sample_format",
+                    "wire_format",
                 }
                 unknown = set(requested) - allowed
                 if unknown:
@@ -714,6 +781,8 @@ class SDRBridge:
             else:
                 candidate = replace(requested, revision=current.revision + 1)
             requires_restart = False
+            reopen_source = False
+            pipelines_reconfigured = False
             try:
                 candidate.validate()
                 if candidate.sample_format is not current.sample_format:
@@ -721,12 +790,21 @@ class SDRBridge:
                 requires_restart = running and (
                     candidate.sample_rate_sps != current.sample_rate_sps
                     or candidate.bandwidth_hz != current.bandwidth_hz
+                    or candidate.wire_format != current.wire_format
+                )
+                reopen_source = requires_restart and bool(
+                    getattr(self.source, "reopen_on_stream_reconfigure", False)
                 )
                 if requires_restart:
                     with self._lock:
                         self._state = LifecycleState.RECONFIGURING
                     self.source.stop()
                     self._stop_dispatcher()
+                    if reopen_source:
+                        if not self.device_id:
+                            raise RuntimeError("cannot reopen a source without a device id")
+                        self.source.close()
+                        self.source.open(self.device_id)
                 effective = self.source.configure(candidate)
                 with self._lock:
                     self.config = effective
@@ -747,6 +825,7 @@ class SDRBridge:
                         or effective.sample_format is not current.sample_format
                     ):
                         self._pipelines.reconfigure(effective.sample_rate_sps, effective.sample_format)
+                        pipelines_reconfigured = True
                         self._reset_rate_measurement_locked()
                 if requires_restart:
                     self._start_dispatcher()
@@ -759,7 +838,16 @@ class SDRBridge:
                 recovered = False
                 if running:
                     try:
+                        if reopen_source:
+                            try:
+                                self.source.close()
+                            finally:
+                                self.source.open(self.device_id)
                         self.source.configure(current)
+                        if pipelines_reconfigured:
+                            self._pipelines.reconfigure(
+                                current.sample_rate_sps, current.sample_format
+                            )
                         if requires_restart:
                             self._start_dispatcher()
                             self.source.start(self._on_source_chunk, self._on_source_error)
@@ -845,6 +933,7 @@ class SDRBridge:
             if self._rate_last_write_ns and time.monotonic_ns() - self._rate_last_write_ns > 1_000_000_000:
                 measured_rate = 0.0
             pipeline_snapshot = self._pipelines.snapshot()
+            source_diagnostics = getattr(self.source, "diagnostics", None)
             return {
                 "run_id": getattr(self, "run_id", None),
                 "state": self._state.value,
@@ -864,11 +953,12 @@ class SDRBridge:
                 "source_queue_high_water": self.source_queue_high_water,
                 "source_losses": self.source_losses,
                 "source_errors": self.source_errors,
+                "source_diagnostics": source_diagnostics() if callable(source_diagnostics) else {},
                 "dispatch_processing_average_ms": self.dispatch_processing_seconds * 1000.0 / self.blocks_written if self.blocks_written else 0.0,
                 "dispatch_processing_max_ms": self.dispatch_processing_max_ms,
                 "dispatch_slow_blocks": self.dispatch_slow_blocks,
                 "dsp_queue_drops": self.dsp_queue_drops,
-                "dsp_queue_capacity": self.source_queue_capacity,
+                "dsp_queue_capacity": self.dsp_queue_capacity,
                 "dsp_queue_high_water": self.dsp_queue_high_water,
                 "dsp_blocks_processed": self.dsp_blocks_processed,
                 "dsp_processing_average_ms": self.dsp_processing_seconds * 1000.0 / self.dsp_blocks_processed if self.dsp_blocks_processed else 0.0,

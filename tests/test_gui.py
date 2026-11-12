@@ -68,6 +68,37 @@ class QtInterfaceTests(unittest.TestCase):
         self.window._destination_endpoint_changed()
         self.assertEqual(self.window.destination_datagram.value(), 1200)
 
+    def test_full_diagnostics_document_is_built_only_while_dialog_is_visible(self):
+        self.assertFalse(self.window.diagnostics_dialog.isVisible())
+        self.window.diagnostics.setPlainText("unchanged while hidden")
+        self.window.refresh()
+        self.assertEqual(self.window.diagnostics.toPlainText(), "unchanged while hidden")
+
+        self.window._open_diagnostics()
+        QtWidgets.QApplication.processEvents()
+        self.assertTrue(self.window.diagnostics_dialog.isVisible())
+        self.assertIn('"source_queue_capacity"', self.window.diagnostics.toPlainText())
+        self.assertIn('"config"', self.window.diagnostics.toPlainText())
+
+    def test_diagnostic_export_distinguishes_saved_and_active_configuration(self):
+        runtime = mock.Mock(
+            config={"radio": {"sample_rate_sps": 2_000_000}},
+            recorder=None,
+        )
+        runtime.udp_destinations_snapshot.return_value = []
+        self.window.runtime = runtime
+        payload = self.window._diagnostic_configuration({
+            "source": "SoapySDR test device",
+            "source_id": "source-7",
+            "device_id": "soapy:test:serial",
+            "epoch": "11",
+            "config": {"sample_rate_sps": 16_000_000},
+        })
+        self.assertEqual(payload["saved"]["radio"]["sample_rate_sps"], 2_000_000)
+        self.assertEqual(payload["active"]["radio"]["sample_rate_sps"], 16_000_000)
+        self.assertEqual(payload["active"]["device_id"], "soapy:test:serial")
+        self.window.runtime = None
+
     def tearDown(self):
         if not self.bridge._closed:
             self.bridge.stop()
@@ -120,6 +151,7 @@ class QtInterfaceTests(unittest.TestCase):
         self.assertEqual(self.window.receiver_group.title(), "RÉCEPTEUR · RÉGLAGES MATÉRIELS")
         self.assertEqual(self.window.rate_label.text(), "Débit d'échantillonnage")
         self.assertEqual(self.window.bandwidth_label.text(), "Bande passante")
+        self.assertEqual(self.window.wire_format_label.text(), "Transport IQ")
         self.assertEqual(self.window.mode_spectrum.text(), "Spectre")
         self.assertEqual(self.window.mode_split.text(), "Partagé")
         self.assertEqual(self.window.smoothing_label.text(), "Lissage")
@@ -133,7 +165,7 @@ class QtInterfaceTests(unittest.TestCase):
         self.assertEqual(self.window.capture_button.text(), "Choisir le fichier et démarrer…")
         self.assertEqual(self.window.diagnostics_title.text(), "DIAGNOSTICS SYSTÈME")
         self.assertIn("consommateur", self.window.compact_consumers.text())
-        self.assertIn("pertes de traitement", self.window.status_bar.text())
+        self.assertIn("pertes source", self.window.status_bar.text())
 
         self.window.language = "en"
         self.window._retranslate_ui()
@@ -142,9 +174,10 @@ class QtInterfaceTests(unittest.TestCase):
         self.assertEqual(self.window.tabs.tabText(1), "Clients & Streams")
         self.assertEqual(self.window.frequency_title.text(), "SDR CENTER FREQUENCY")
         self.assertEqual(self.window.smoothing_label.text(), "Smoothing")
+        self.assertEqual(self.window.wire_format_label.text(), "IQ transport")
         self.assertEqual(self.window.consumer_table.horizontalHeaderItem(0).text(), "Consumer / destination")
         self.assertEqual(self.window.capture_group.title(), "RECORDING CONFIGURATION")
-        self.assertIn("processing drops", self.window.status_bar.text())
+        self.assertIn("losses source", self.window.status_bar.text())
 
     def test_normal_rf_axes_show_rounded_absolute_mhz_and_follow_effective_vfo(self):
         axes = [
@@ -204,6 +237,35 @@ class QtInterfaceTests(unittest.TestCase):
         self.assertTrue(self.window._capabilities)
         self.assertGreater(self.window.rate_combo.count(), 0)
         self.assertGreater(self.window.bandwidth_combo.count(), 0)
+
+    def test_wire_format_control_uses_only_driver_advertised_values(self):
+        self.window._capabilities = {
+            **self.window._capabilities,
+            "sample_rates_sps": [1_000_000, 2_000_000, 4_000_000, 8_000_000, 16_000_000],
+            "sample_rate_ranges_sps": [[1_000_000, 16_000_000, 1_000_000]],
+            "wire_formats": ["sc8", "sc16"],
+            "wire_format_default": "sc16",
+        }
+        self.window.rate_edit.setText("16000000")
+        self.window._refresh_wire_format_combo("sc8")
+        self.assertTrue(self.window.wire_format_combo.isVisible())
+        self.assertEqual(
+            [self.window.wire_format_combo.itemData(index) for index in range(self.window.wire_format_combo.count())],
+            [None, "sc8", "sc16"],
+        )
+        self.assertEqual(self.window.wire_format_combo.currentData(), "sc8")
+        self.assertEqual(self.window._draft_config()["wire_format"], "sc8")
+
+        self.window._refresh_wire_format_combo(None)
+        self.assertEqual(self.window.wire_format_combo.itemText(0), "Auto — SC8")
+        self.window._schedule_stream_restart_apply()
+        self.assertTrue(self.window._live_apply_timer.isActive())
+        self.assertEqual(self.window._live_apply_timer.interval(), 650)
+        self.window._live_apply_timer.stop()
+
+        self.window._capabilities = {**self.window._capabilities, "wire_formats": []}
+        self.window._refresh_wire_format_combo(None)
+        self.assertTrue(self.window.wire_format_combo.isHidden())
 
     def test_compact_contract_dimensions_and_text_state(self):
         self.window.toggle_compact()

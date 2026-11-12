@@ -13,5 +13,5 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 # Python. L'application configure ses handlers persistants au démarrage.
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-__version__ = "0.7.0.dev2"
+__version__ = "0.7.0"
 

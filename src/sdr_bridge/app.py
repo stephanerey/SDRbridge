@@ -14,7 +14,7 @@ from .bridge import SDRBridge
 from .config import DEFAULT_CONFIG, load_app_config, normalize_instance_name, save_app_config
 from .control import ControlServer
 from .iq_file import IQFileSource
-from .model import RadioConfig, SampleFormat
+from .model import MAX_SAMPLE_RATE_SPS, RadioConfig, SampleFormat
 from .logging_setup import configure_logging
 from .native_control import NativeControlServer
 from .native_sdrplay import NativeSDRplaySource
@@ -90,8 +90,8 @@ def _normalize_udp_entries(
         rate = values.get("sample_rate_sps", default_rate)
         datagram_bytes = values.get("datagram_bytes", default_datagram_bytes)
         queue_blocks = values.get("queue_blocks", default_queue_blocks)
-        if rate is not None and not 1 <= int(rate) <= 20_000_000:
-            raise ValueError("UDP sample rate must be between 1 and 20000000 S/s")
+        if rate is not None and not 1 <= int(rate) <= MAX_SAMPLE_RATE_SPS:
+            raise ValueError(f"UDP sample rate must be between 1 and {MAX_SAMPLE_RATE_SPS} S/s")
         if datagram_bytes is not None and not 256 <= int(datagram_bytes) <= 65_507:
             raise ValueError("UDP datagram size must be between 256 and 65507 bytes")
         if not 4 <= int(queue_blocks) <= 4096:
@@ -260,6 +260,7 @@ class AppRuntime:
             antenna=radio.get("antenna"),
             gains=radio.get("gains", {}),
             sample_format=effective_format,
+            wire_format=radio.get("wire_format"),
         )
         self.bridge = SDRBridge(
             source,
@@ -267,6 +268,7 @@ class AppRuntime:
             block_samples=block_samples,
             slots=int(buffers["ring_slots"]),
             source_queue_blocks=int(buffers.get("source_queue_blocks", 256)),
+            dsp_queue_blocks=int(buffers.get("dsp_queue_blocks", 512)),
             max_clients=buffers.get("max_clients"),
             device_id=(source.device_id if source_kind in {"replay", "file"} else config.get("device_id")),
             run_id=run_id,

@@ -23,7 +23,7 @@ un module Soapy natif et maintenu.
 
 ## Préparation du PC de validation
 
-1. Avec l'installateur de validation 0.7.0.dev2, installer uniquement les
+1. Avec l'installateur 0.7.0, installer uniquement les
    pilotes Windows recommandés par le fabricant. PothosSDR n'est pas requis
    pour exécuter le paquet installé ; il ne sert qu'à reconstruire les modules
    depuis les sources.
@@ -46,7 +46,7 @@ même installation UHD et définir
 prises dans une autre version UHD.
 
 La méthode recommandée sur le PC du B100 consiste à copier puis exécuter
-`SDRbridge_Setup_0.7.0.dev2.exe`. Pour reconstruire et lancer la branche depuis
+`SDRbridge_Setup_0.7.0.exe`. Pour reconstruire et lancer la branche depuis
 les sources à la place :
 
 ```powershell
@@ -64,17 +64,23 @@ compiler les adaptateurs privés ABI 0.8. La présence de `uhd` dans la ligne
 `Available factories` prouve uniquement le chargement logiciel ; le B100 doit
 ensuite apparaître dans la liste **Source** et réussir l'essai RX ci-dessous.
 
-Dans SDRbridge 0.7.0.dev2, le B100 est limité aux débits CS16 utilisables jusqu'à
-8 MS/s. La longue liste de bandes passantes UHD du frontend est masquée car elle
-ne représente pas la largeur IQ. Le contrôle `ADC-pga` reste exposé et doit être
-testé en observant son effet sur le niveau reçu.
+Dans SDRbridge 0.7.0, le sélecteur **Transport IQ** reprend les valeurs
+annoncées par SoapyUHD. Tester d'abord SC16 jusqu'à 8 MS/s, puis sélectionner
+Auto et vérifier qu'il affiche SC8 à 10,667 puis 16 MS/s, puis forcer SC8 et
+répéter le test. Chaque changement ferme et rouvre le périphérique Soapy avant
+de reconstruire le streamer. Le diagnostic `source_diagnostics` doit indiquer
+`wire_format_effective: sc8` et `host_stream_format: CS8`, tandis
+que les flux internes et clients restent en CS16. Le diagnostic doit aussi
+indiquer `device_args_effective.num_recv_frames: 1024`, `dsp_queue_capacity: 1024`, `handoff_pool_misses: 0`, le MTU effectif et le
+compteur `rx_overflows`. Le contrôle `ADC-pga` et les
+bandes passantes annoncées par UHD restent exposés sans exception propre au B100.
 
 ## Essai à exécuter pour chaque matériel
 
 1. Ouvrir SDRbridge sans lancer l'acquisition, puis actualiser les sources.
 2. Vérifier que le nom du matériel apparaît et noter le libellé complet.
 3. Sélectionner le matériel. Vérifier que fréquence d'échantillonnage, bande
-   passante, antenne, AGC et gains n'apparaissent que s'ils sont réellement
+   passante, transport IQ, antenne, AGC et gains n'apparaissent que s'ils sont réellement
    exposés par son module Soapy.
 4. Choisir le premier débit de la matrice, lancer l'acquisition et attendre que
    le bouton passe à l'état actif.
