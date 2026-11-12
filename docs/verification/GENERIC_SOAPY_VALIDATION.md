@@ -1,107 +1,74 @@
-# Qualification des récepteurs Soapy génériques
+[Documentation française](GENERIC_SOAPY_VALIDATION_FR.md)
 
-Cette procédure qualifie la branche de développement postérieure à SDRbridge
-0.6.1. Elle ne transforme pas la simple présence d'une factory Soapy en preuve
-de fonctionnement matériel : chaque ligne doit être testée avec le récepteur
-réel et son pilote Windows.
+# Generic SoapySDR receiver qualification
 
-## Matrice confiée à Denis
+This procedure validates a physical receiver with SDRbridge 0.7.0. Detecting a
+SoapySDR factory only proves that its software module loaded; it does not prove
+that the receiver, vendor driver or complete streaming path works correctly.
 
-| Matériel | Factory attendue | Premier débit conseillé | État |
-|---|---|---:|---|
-| Airspy R2 | `airspy` | 2,5 MS/s | à qualifier |
-| Airspy HF+ | `airspyhf` | 768 kS/s | à qualifier |
-| RTL-SDR avec E4000 | `rtlsdr` | 2,048 MS/s | à qualifier |
-| RTL-SDR avec R820T | `rtlsdr` | 2,048 MS/s | à qualifier |
-| LimeSDR Mini | `lime` | 2 MS/s, puis 10 MS/s | à qualifier |
-| ADALM-Pluto original | `plutosdr` | 2 MS/s | à qualifier |
-| Ettus USRP B100 | `uhd` | 1 MS/s, puis 4 MS/s | à qualifier immédiatement |
+Validated results are recorded in the continuously updated
+[hardware validation matrix](../HARDWARE_COMPATIBILITY.md). SDRbridge does not
+contain model-specific rate limits or invented controls: the application uses
+the capabilities reported by the selected receiver and its SoapySDR module.
 
-Le FunCube Dongle est volontairement hors périmètre : aucun adaptateur propre à
-SDRbridge ne sera ajouté tant qu'il n'est pas présenté comme récepteur IQ par
-un module Soapy natif et maintenu.
+## Prepare the validation computer
 
-## Préparation du PC de validation
+1. Install the Windows driver, API, firmware and hardware images recommended by
+   the receiver manufacturer.
+2. Confirm that the receiver works with the vendor's own utility when one is
+   available.
+3. Close every other application that may have opened the receiver.
+4. Install the current SDRbridge release. PothosSDR is not required to run the
+   packaged application.
+5. Do not copy SDRbridge's private SoapySDR DLLs into PothosSDR, SDR++, ANTRACK
+   or another application. The software stacks must remain isolated.
 
-1. Avec l'installateur 0.7.0, installer uniquement les
-   pilotes Windows recommandés par le fabricant. PothosSDR n'est pas requis
-   pour exécuter le paquet installé ; il ne sert qu'à reconstruire les modules
-   depuis les sources.
-2. Pour les clés RTL-SDR, vérifier que l'interface IQ utilise le pilote WinUSB
-   approprié. Ne pas remplacer le pilote d'un autre périphérique par erreur.
-3. Fermer les autres logiciels qui pourraient avoir ouvert le SDR.
-4. Installer le paquet de validation SDRbridge fourni pour cette campagne.
-5. Ne copier aucune DLL Soapy de SDRbridge dans PothosSDR, SDR++, ANTRACK ou un
-   autre logiciel. Les piles restent isolées.
+SDRbridge does not download, replace or modify vendor drivers, firmware or
+hardware images. A receiver that is not correctly configured upstream cannot
+be repaired by SDRbridge.
 
-### Préparation particulière de l'USRP B100 sous Windows
+## Run the receiver test
 
-Le B100 est un périphérique USB 2.0 hérité pris en charge par UHD. Avant de
-lancer SDRbridge, vérifier que le pilote WinUSB UHD est installé dans le
-Gestionnaire de périphériques et que les images compatibles avec la version
-UHD 4.0 du runtime Pothos sont présentes. UHD charge automatiquement les images
-du B100 au démarrage ; au besoin, utiliser le téléchargeur fourni par cette
-même installation UHD et définir
-`UHD_IMAGES_DIR` vers son répertoire `images`. Ne jamais mélanger des images
-prises dans une autre version UHD.
+1. Open SDRbridge without starting acquisition, then refresh the source list.
+2. Confirm that the receiver appears and record its complete source label.
+3. Select it and verify that sample rates, bandwidths, IQ transports, antennas,
+   AGC and gains are shown only when the SoapySDR module exposes them.
+4. Start at a conservative sample rate and press **Acquisition**. Wait until the
+   button becomes green and the measured rate stabilizes.
+5. Observe a live spectrum or waterfall for at least 60 seconds. The measured
+   rate must match the selected rate and the separated loss counters must remain
+   stable.
+6. Add one local UDP destination at the same rate, then repeat the observation.
+7. Change frequency and exercise every visible gain or AGC control. An absent
+   control is not a defect when the hardware does not advertise it.
+8. Perform five Stop/Play cycles, change temporarily to Simulation, then return
+   to the receiver. Acquisition must restart without remaining on “waiting for
+   new blocks”.
+9. Increase the source rate step by step. When several IQ transports are
+   advertised, test **Auto** and each relevant explicit transport.
+10. Test the intended client mix, including lower-rate filtered outputs, for at
+    least five minutes.
+11. Export a diagnostic ZIP and capture the **Radio** and
+    **Clients & Streams** pages.
 
-La méthode recommandée sur le PC du B100 consiste à copier puis exécuter
-`SDRbridge_Setup_0.7.0.exe`. Pour reconstruire et lancer la branche depuis
-les sources à la place :
+## Interpret the counters
 
-```powershell
-git clone --branch codex/generic-soapy-uhd https://github.com/stephanerey/SDRbridge.git
-cd SDRbridge
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt
-.\packaging\build_soapy_runtime.ps1
-.\.venv\Scripts\python.exe .\launch_sdrbridge.pyw
-```
+- **Source losses** are reported before SDRbridge processing by the receiver or
+  its driver.
+- **Queue, DSP and profile losses** indicate that SDRbridge could not process a
+  block in time.
+- **UDP losses or errors** belong to a destination queue, socket or network
+  path.
 
-Le script de runtime ne requiert pas le SDK SDRplay sur un PC de test générique.
-Il requiert en revanche PothosSDR x64 et Visual Studio Build Tools/CMake pour
-compiler les adaptateurs privés ABI 0.8. La présence de `uhd` dans la ligne
-`Available factories` prouve uniquement le chargement logiciel ; le B100 doit
-ensuite apparaître dans la liste **Source** et réussir l'essai RX ci-dessous.
+The test report must preserve these categories instead of combining them into
+one unexplained number.
 
-Dans SDRbridge 0.7.0, le sélecteur **Transport IQ** reprend les valeurs
-annoncées par SoapyUHD. Tester d'abord SC16 jusqu'à 8 MS/s, puis sélectionner
-Auto et vérifier qu'il affiche SC8 à 10,667 puis 16 MS/s, puis forcer SC8 et
-répéter le test. Chaque changement ferme et rouvre le périphérique Soapy avant
-de reconstruire le streamer. Le diagnostic `source_diagnostics` doit indiquer
-`wire_format_effective: sc8` et `host_stream_format: CS8`, tandis
-que les flux internes et clients restent en CS16. Le diagnostic doit aussi
-indiquer `device_args_effective.num_recv_frames: 1024`, `dsp_queue_capacity: 1024`, `handoff_pool_misses: 0`, le MTU effectif et le
-compteur `rx_overflows`. Le contrôle `ADC-pga` et les
-bandes passantes annoncées par UHD restent exposés sans exception propre au B100.
+## Record the result
 
-## Essai à exécuter pour chaque matériel
+For each receiver, record its model and tuner, driver/API version, SoapySDR
+backend, complete SDRbridge label, tested rates, effective IQ transport,
+visible controls, Stop/Play result, final loss counters and diagnostic report.
 
-1. Ouvrir SDRbridge sans lancer l'acquisition, puis actualiser les sources.
-2. Vérifier que le nom du matériel apparaît et noter le libellé complet.
-3. Sélectionner le matériel. Vérifier que fréquence d'échantillonnage, bande
-   passante, transport IQ, antenne, AGC et gains n'apparaissent que s'ils sont réellement
-   exposés par son module Soapy.
-4. Choisir le premier débit de la matrice, lancer l'acquisition et attendre que
-   le bouton passe à l'état actif.
-5. Pendant au moins 60 secondes, vérifier un spectre ou waterfall vivant, un
-   débit mesuré cohérent et **Total losses = 0**.
-6. Ajouter un client UDP local au même débit, puis vérifier encore 60 secondes
-   que le flux client reste stable et que les pertes restent nulles.
-7. Changer la fréquence dans SDRbridge et vérifier le déplacement attendu du
-   spectre. Tester chaque gain/AGC visible ; un contrôle absent n'est pas un
-   défaut si le module ne l'expose pas.
-8. Effectuer cinq cycles Stop/Play, puis un changement vers Simulation et un
-   retour au SDR. Aucun cycle ne doit rester sur « waiting for new blocks ».
-9. Pour LimeSDR Mini seulement, refaire l'essai à 10 MS/s avec une sortie UDP à
-   2 MS/s, puis à 4 MS/s si la machine le permet.
-10. Exporter le rapport ZIP de diagnostics et prendre une capture des onglets
-    Radio et Clients_Streams.
-
-## Éléments à retourner
-
-Pour chaque appareil : modèle/tuner, version du pilote, libellé SDRbridge,
-débits disponibles, contrôles visibles, résultat Stop/Play, pertes finales,
-rapport de diagnostics et captures. Toute réception réelle doit rester marquée
-« non qualifiée » dans la documentation tant que ces preuves ne sont pas
-archivées.
+Only measured configurations belong in the hardware matrix. The “maximum
+tested IQ rate” is evidence from a particular receiver and computer; it is not
+necessarily the receiver's absolute specification limit.

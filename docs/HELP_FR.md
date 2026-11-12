@@ -1,4 +1,6 @@
-# Aide SDRbridge 0.6
+[English documentation](HELP_EN.md)
+
+# Aide SDRbridge 0.7.0
 
 SDRbridge reçoit un flux IQ depuis un récepteur SDR ou un fichier, puis le
 distribue simultanément à plusieurs logiciels et enregistrements. Chaque client

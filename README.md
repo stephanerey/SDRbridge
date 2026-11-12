@@ -10,7 +10,7 @@ Version 0.7.0 adds isolated generic SoapySDR receiver modules, throughput-aware 
 
 ![HDSDR, SDRuno, SDR++, QMAP and SDRbridge sharing one RX stream](docs/assets/sdrbridge-06-full-stack.png)
 
-*SDRbridge 0.6 qualification setup: HDSDR and SDRuno through the local ExtIO adapter, SDR++ through SDBU v2, and QMAP through Linrad at 96 kS/s. Six consumers are monitored, with 131.1 Mb/s of useful UDP traffic and zero loss. SDRbridge remains the sole RF authority.*
+*Multi-client qualification setup: HDSDR and SDRuno through the local ExtIO adapter, SDR++ through SDBU v2, and QMAP through Linrad at 96 kS/s. Six consumers are monitored, with 131.1 Mb/s of useful UDP traffic and zero loss. SDRbridge remains the sole RF authority.*
 
 ## What the project does
 
@@ -200,7 +200,7 @@ Native faults that Python can intercept are written separately to `sdrbridge-fau
 
 ### Multiple instances and multiple SDRs
 
-Version 0.6 keeps one active source per process. Several processes can run concurrently with separate instance names, port offsets, rings, and logs. The verified reference configuration uses the RSPdx through the native backend and the RSP1 through Soapy.
+Version 0.7.0 keeps one active source per process. Several processes can run concurrently with separate instance names, port offsets, rings, and logs. The verified reference configuration uses the RSPdx through the native backend and the RSP1 through Soapy.
 
 ```powershell
 .\start-sdrbridge.ps1 -Instance rspdx -Config .\config.native-sdrpp.json
@@ -269,7 +269,7 @@ The 0.6 ExtIO adapter attaches to the master ring and does not select a decimate
 
 HDSDR appears under **Active consumers** and adds its rate to the **Logical IQ rate**. It does not increase **Useful UDP rate** or **Measured network rate**. With `CS16`, 2 MS/s represents 64 Mb/s of logical traffic per reader. Several HDSDR processes read the same ring, which SDRbridge writes only once; every HDSDR process still performs its own copies, FFT, waterfall, and demodulation. On the SDRbridge side, four ExtIO readers therefore generally cost less than four equivalent UDP destinations, although they are not free for the computer's overall CPU and memory usage.
 
-The DLL is a Win32 ExtIO adapter. **HDSDR 2.81a and SDRuno 1.42.1710 in ExtIO mode are the certified hosts for version 0.6.** Other Win32 applications that genuinely implement the same ExtIO ABI may be candidates, but are not declared compatible without explicit testing.
+The DLL is a Win32 ExtIO adapter. **HDSDR 2.81a and SDRuno 1.42.1710 in ExtIO mode are certified hosts with SDRbridge 0.7.0.** Other Win32 applications that genuinely implement the same ExtIO ABI may be candidates, but are not declared compatible without explicit testing.
 
 ### Using the same ExtIO adapter with SDRuno
 
@@ -319,7 +319,7 @@ Status verified on November 10, 2026: all 90 application tests pass. A real RSP1
 
 ## Documentation
 
-- [Illustrated technical overview of version 0.6](docs/TECHNICAL_OVERVIEW.md)
+- [Illustrated overview of the multi-client qualification campaign](docs/TECHNICAL_OVERVIEW.md)
 - [Development entry point](docs/START_HERE.md)
 - [Verified current state and limitations](docs/work/CURRENT_STATE.md)
 - [v0.3 execution contract](docs/specs/06_IMPLEMENTATION_BASELINE.md)

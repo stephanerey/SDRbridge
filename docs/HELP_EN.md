@@ -1,4 +1,6 @@
-# SDRbridge 0.6 Help
+[Documentation française](HELP_FR.md)
+
+# SDRbridge 0.7.0 Help
 
 SDRbridge receives I/Q samples from one SDR or recording and distributes them
 to several applications and recorders at the same time. Every UDP destination

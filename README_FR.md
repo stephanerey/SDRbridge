@@ -10,7 +10,7 @@ La version 0.7.0 ajoute les modules de réception SoapySDR génériques isolés,
 
 ![HDSDR, SDRuno, SDR++, QMAP et SDRbridge partageant le même flux RX](docs/assets/sdrbridge-06-full-stack.png)
 
-*Chaîne de qualification 0.6 : HDSDR et SDRuno via l’ExtIO locale, SDR++ via SDBU v2 et QMAP via Linrad 96 kS/s. Six consommateurs sont supervisés, avec 131,1 Mb/s UDP utiles et zéro perte. SDRbridge reste l’unique autorité RF.*
+*Chaîne de qualification multi-clients : HDSDR et SDRuno via l’ExtIO locale, SDR++ via SDBU v2 et QMAP via Linrad 96 kS/s. Six consommateurs sont supervisés, avec 131,1 Mb/s UDP utiles et zéro perte. SDRbridge reste l’unique autorité RF.*
 
 ## Ce que fait le projet
 
@@ -50,7 +50,7 @@ présence d'une factory Soapy ne prouve pas que le récepteur physique fonctionn
 
 Consultez la [matrice de validation matérielle](docs/HARDWARE_COMPATIBILITY_FR.md),
 mise à jour au fil des essais, ainsi que la [procédure de qualification
-générique](docs/verification/GENERIC_SOAPY_VALIDATION.md).
+générique](docs/verification/GENERIC_SOAPY_VALIDATION_FR.md).
 
 ## Installer SDRbridge
 
@@ -295,7 +295,7 @@ moins cher que quatre destinations UDP équivalentes, sans être gratuits pour
 le CPU et la mémoire de la machine entière.
 
 La DLL est une ExtIO Win32. **HDSDR 2.81a et SDRuno 1.42.1710 en mode ExtIO
-sont les hôtes certifiés pour la version 0.6.** D’autres applications Win32
+sont les hôtes certifiés avec SDRbridge 0.7.0.** D’autres applications Win32
 implémentant réellement la même ABI ExtIO peuvent être candidates ; elles ne
 sont pas déclarées compatibles avant un essai explicite.
 
@@ -356,7 +356,7 @@ Le paquet portable local, lorsqu’il a été construit, se lance avec `start-sd
 
 ## Documentation
 
-- [Vue technique illustrée de la version 0.6](docs/TECHNICAL_OVERVIEW.md)
+- [Vue technique illustrée de la campagne de qualification multi-clients](docs/TECHNICAL_OVERVIEW.md)
 - [Point d’entrée du développement](docs/START_HERE.md)
 - [État réel et réserves](docs/work/CURRENT_STATE.md)
 - [Contrat d’exécution v0.3](docs/specs/06_IMPLEMENTATION_BASELINE.md)

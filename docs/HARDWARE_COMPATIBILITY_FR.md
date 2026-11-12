@@ -35,5 +35,5 @@ la résolution IQ effectifs, les sorties clientes, la durée du test et le
 rapport de diagnostic. Ne pas déclarer un récepteur validé au seul motif que sa
 factory Soapy se charge.
 
-Utiliser la [procédure de qualification Soapy générique](verification/GENERIC_SOAPY_VALIDATION.md)
+Utiliser la [procédure de qualification Soapy générique](verification/GENERIC_SOAPY_VALIDATION_FR.md)
 pour obtenir des essais reproductibles.

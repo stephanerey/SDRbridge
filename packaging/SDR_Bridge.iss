@@ -39,6 +39,8 @@ Source: "{#ReleaseDir}\HELP_FR.md"; DestDir: "{app}\Documentation"; Flags: ignor
 Source: "{#ReleaseDir}\HELP_EN.md"; DestDir: "{app}\Documentation"; Flags: ignoreversion
 Source: "{#ReleaseDir}\HARDWARE_COMPATIBILITY_FR.md"; DestDir: "{app}\Documentation"; Flags: ignoreversion
 Source: "{#ReleaseDir}\HARDWARE_COMPATIBILITY.md"; DestDir: "{app}\Documentation"; Flags: ignoreversion
+Source: "{#ReleaseDir}\verification\GENERIC_SOAPY_VALIDATION_FR.md"; DestDir: "{app}\Documentation\verification"; Flags: ignoreversion
+Source: "{#ReleaseDir}\verification\GENERIC_SOAPY_VALIDATION.md"; DestDir: "{app}\Documentation\verification"; Flags: ignoreversion
 Source: "{#ReleaseDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#ReleaseDir}\AUTHORS.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#ReleaseDir}\COPYRIGHT"; DestDir: "{app}"; Flags: ignoreversion
